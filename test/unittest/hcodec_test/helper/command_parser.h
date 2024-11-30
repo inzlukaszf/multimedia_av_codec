@@ -20,6 +20,7 @@
 
 #include <string>
 #include <optional>
+#include "native_avcodec_base.h"
 #include "av_common.h"
 #include "avcodec_info.h"
 #include "media_description.h"
@@ -33,10 +34,46 @@ enum class ApiType {
     TEST_C_API_OLD,
 };
 
+struct QPRange {
+    uint32_t qpMin;
+    uint32_t qpMax;
+};
+
+struct LTRParam {
+    bool markAsLTR;
+    bool useLTR;
+    uint32_t useLTRPoc;
+};
+
+struct EBRParam {
+    int32_t minQp;
+    int32_t maxQp;
+    int32_t startQp;
+    int32_t isSkip;
+};
+
+struct SetParameterParams {
+    std::optional<bool> requestIdr;
+    std::optional<uint32_t> bitRate;
+    std::optional<double> frameRate;
+    std::optional<QPRange> qpRange;
+    std::optional<VideoRotation> rotate;
+    std::optional<OH_ScalingMode> scaleMode;
+};
+
+struct PerFrameParams {
+    std::optional<bool> requestIdr;
+    std::optional<QPRange> qpRange;
+    std::optional<LTRParam> ltrParam;
+    std::optional<bool> discard;
+    std::optional<EBRParam> ebrParam;
+};
+
 struct CommandOpt {
     ApiType apiType = ApiType::TEST_CODEC_BASE;
     bool isEncoder = false;
     bool isBufferMode = false;
+    uint32_t ltrFrameCount = 0;
     uint32_t repeatCnt = 1;
     std::string inputFile;
     uint32_t maxReadFrameCnt = 0; // 0 means read whole file
@@ -48,24 +85,37 @@ struct CommandOpt {
     int32_t timeout = -1;
     bool isHighPerfMode = false;
     // encoder only
+    bool enableInputCb = false;
     std::optional<uint32_t> mockFrameCnt;  // when read up to maxReadFrameCnt, stop read and send input directly
     std::optional<bool> rangeFlag;
     std::optional<ColorPrimary> primary;
     std::optional<TransferCharacteristic> transfer;
     std::optional<MatrixCoefficient> matrix;
     std::optional<int32_t> iFrameInterval;
-    std::optional<uint32_t> idrFrameNo;
     std::optional<int> profile;
     std::optional<VideoEncodeBitrateMode> rateMode;
     std::optional<uint32_t> bitRate;  // bps
     std::optional<uint32_t> quality;
+    std::optional<QPRange> qpRange;
+    std::optional<uint32_t> ltrListLen;
+    std::optional<int32_t> repeatAfter;
+    std::optional<int32_t> repeatMaxCnt;
+    std::optional<uint32_t> layerCnt;
+    bool paramsFeedback;
+
     // decoder only
     bool render = false;
     bool decThenEnc = false;
     VideoRotation rotation = VIDEO_ROTATION_0;
     int flushCnt = 0;
 
+    std::map<uint32_t, SetParameterParams> setParameterParamsMap;
+    std::map<uint32_t, PerFrameParams> perFrameParamsMap;
+
     void Print() const;
+    void ParseParamFromCmdLine(bool isPerFrame, const char *cmd);
+    void ParseSetParameter(uint32_t frameNo, const std::string &s);
+    void ParsePerFrameParam(uint32_t frameNo, const std::string &s);
 };
 
 CommandOpt Parse(int argc, char *argv[]);

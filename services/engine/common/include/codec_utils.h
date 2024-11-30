@@ -33,6 +33,8 @@ namespace Codec {
 using AVMemory = Media::AVMemory;
 using Format = Media::Format;
 const int32_t VIDEO_ALIGN_SIZE = 16;
+constexpr uint32_t VIDEO_PIX_DEPTH_RGBA = 4;
+constexpr int32_t UV_SCALE_FACTOR = 2;
 struct ScalePara {
     int32_t srcWidth = 0;
     int32_t srcHeight = 0;
@@ -53,7 +55,7 @@ private:
 };
 struct SurfaceInfo {
     uint32_t surfaceStride = 0;
-    int32_t surfaceFence = 0;
+    sptr<SyncFence> surfaceFence = nullptr;
     uint8_t **scaleData = nullptr;
     int32_t *scaleLineSize = nullptr;
 };

@@ -17,7 +17,7 @@
 #include "avcodec_log.h"
 
 namespace {
-    constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "TaskThread"};
+    constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_FRAMEWORK, "TaskThread"};
     constexpr uint8_t LOGD_FREQUENCY = 100;
 }
 namespace OHOS {
@@ -39,7 +39,7 @@ TaskThread::~TaskThread()
     runningState_ = RunningState::STOPPED;
     syncCond_.notify_all();
 
-    if (loop_) {
+    if (loop_ != nullptr) {
         if (loop_->joinable()) {
             loop_->join();
         }
@@ -54,7 +54,7 @@ void TaskThread::Start()
         syncCond_.wait(lock, [this] { return runningState_.load() == RunningState::STOPPED; });
     }
     if (runningState_.load() == RunningState::STOPPED) {
-        if (loop_) {
+        if (loop_ != nullptr) {
             if (loop_->joinable()) {
                 loop_->join();
             }
@@ -79,7 +79,7 @@ void TaskThread::Stop()
         runningState_ = RunningState::STOPPING;
         syncCond_.notify_all();
         syncCond_.wait(lock, [this] { return runningState_.load() == RunningState::STOPPED; });
-        if (loop_) {
+        if (loop_ != nullptr) {
             if (loop_->joinable()) {
                 loop_->join();
             }
@@ -93,7 +93,7 @@ void TaskThread::StopAsync()
 {
     AVCODEC_LOGD("task %{public}s StopAsync called", name_.data());
     std::unique_lock lock(stateMutex_);
-    if (runningState_.load() != RunningState::STOPPING || runningState_.load() != RunningState::STOPPED) {
+    if (runningState_.load() != RunningState::STOPPING && runningState_.load() != RunningState::STOPPED) {
         runningState_ = RunningState::STOPPING;
         syncCond_.notify_all();
     }

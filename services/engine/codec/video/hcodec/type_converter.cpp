@@ -18,23 +18,28 @@
 
 namespace OHOS::MediaAVCodec {
 using namespace std;
-using namespace OHOS::HDI::Codec::V2_0;
+using namespace CodecHDI;
 
 struct Protocol {
     OMX_VIDEO_CODINGTYPE omxCodingType;
-    OHOS::HDI::Codec::V2_0::AvCodecRole hdiRole;
+    CodecHDI::AvCodecRole hdiRole;
     string mime;
 };
 vector<Protocol> g_protocolTable = {
     {
         OMX_VIDEO_CodingAVC,
-        OHOS::HDI::Codec::V2_0::AvCodecRole::MEDIA_ROLETYPE_VIDEO_AVC,
+        CodecHDI::AvCodecRole::MEDIA_ROLETYPE_VIDEO_AVC,
         string(CodecMimeType::VIDEO_AVC),
     },
     {
         static_cast<OMX_VIDEO_CODINGTYPE>(CODEC_OMX_VIDEO_CodingHEVC),
-        OHOS::HDI::Codec::V2_0::AvCodecRole::MEDIA_ROLETYPE_VIDEO_HEVC,
+        CodecHDI::AvCodecRole::MEDIA_ROLETYPE_VIDEO_HEVC,
         string(CodecMimeType::VIDEO_HEVC),
+    },
+    {
+        static_cast<OMX_VIDEO_CODINGTYPE>(CODEC_OMX_VIDEO_CodingVVC),
+        OHOS::HDI::Codec::V3_0::AvCodecRole::MEDIA_ROLETYPE_VIDEO_VVC,
+        string("video/vvc"),
     },
 };
 
@@ -82,6 +87,10 @@ vector<AVCLevelMapping> g_avcLevelTable = {
     { OMX_VIDEO_AVCLevel42, AVC_LEVEL_42 },
     { OMX_VIDEO_AVCLevel5,  AVC_LEVEL_5 },
     { OMX_VIDEO_AVCLevel51, AVC_LEVEL_51 },
+    { static_cast<OMX_VIDEO_AVCLEVELTYPE>(OMX_VIDEO_AVC_LEVEL52), AVC_LEVEL_52 },
+    { static_cast<OMX_VIDEO_AVCLEVELTYPE>(OMX_VIDEO_AVC_LEVEL6), AVC_LEVEL_6 },
+    { static_cast<OMX_VIDEO_AVCLEVELTYPE>(OMX_VIDEO_AVC_LEVEL61), AVC_LEVEL_61 },
+    { static_cast<OMX_VIDEO_AVCLEVELTYPE>(OMX_VIDEO_AVC_LEVEL62), AVC_LEVEL_62 },
 };
 
 struct HEVCProfileMapping {
@@ -129,7 +138,7 @@ vector<HEVCLevelMapping> g_hevcLevelTable = {
     { CODEC_HEVC_HIGH_TIER_LEVEL62, HEVC_LEVEL_62 },
 };
 
-optional<AVCodecType> TypeConverter::HdiCodecTypeToInnerCodecType(OHOS::HDI::Codec::V2_0::CodecType type)
+optional<AVCodecType> TypeConverter::HdiCodecTypeToInnerCodecType(CodecHDI::CodecType type)
 {
     static const map<CodecType, AVCodecType> table = {
         {VIDEO_DECODER, AVCODEC_TYPE_VIDEO_DECODER},
@@ -137,7 +146,7 @@ optional<AVCodecType> TypeConverter::HdiCodecTypeToInnerCodecType(OHOS::HDI::Cod
     };
     auto it = table.find(type);
     if (it == table.end()) {
-        LOGW("unknown codecType %{public}d", type);
+        LOGW("unknown codecType %d", type);
         return std::nullopt;
     }
     return it->second;
@@ -151,7 +160,7 @@ std::optional<OMX_VIDEO_CODINGTYPE> TypeConverter::HdiRoleToOmxCodingType(AvCode
     if (it != g_protocolTable.end()) {
         return it->omxCodingType;
     }
-    LOGW("unknown AvCodecRole %{public}d", role);
+    LOGW("unknown AvCodecRole %d", role);
     return nullopt;
 }
 
@@ -163,7 +172,7 @@ string TypeConverter::HdiRoleToMime(AvCodecRole role)
     if (it != g_protocolTable.end()) {
         return it->mime;
     }
-    LOGW("unknown AvCodecRole %{public}d", role);
+    LOGW("unknown AvCodecRole %d", role);
     return {};
 }
 
@@ -175,7 +184,7 @@ std::optional<PixelFmt> TypeConverter::GraphicFmtToFmt(GraphicPixelFormat format
     if (it != g_pixelFmtTable.end()) {
         return *it;
     }
-    LOGW("unknown GraphicPixelFormat %{public}d", format);
+    LOGW("unknown GraphicPixelFormat %d", format);
     return nullopt;
 }
 
@@ -187,7 +196,7 @@ std::optional<PixelFmt> TypeConverter::InnerFmtToFmt(VideoPixelFormat format)
     if (it != g_pixelFmtTable.end()) {
         return *it;
     }
-    LOGW("unknown VideoPixelFormat %{public}d", format);
+    LOGW("unknown VideoPixelFormat %d", format);
     return nullopt;
 }
 
@@ -199,7 +208,7 @@ std::optional<GraphicPixelFormat> TypeConverter::InnerFmtToDisplayFmt(VideoPixel
     if (it != g_pixelFmtTable.end()) {
         return it->graphicFmt;
     }
-    LOGW("unknown VideoPixelFormat %{public}d", format);
+    LOGW("unknown VideoPixelFormat %d", format);
     return nullopt;
 }
 
@@ -211,7 +220,7 @@ std::optional<VideoPixelFormat> TypeConverter::DisplayFmtToInnerFmt(GraphicPixel
     if (it != g_pixelFmtTable.end()) {
         return it->innerFmt;
     }
-    LOGW("unknown GraphicPixelFormat %{public}d", format);
+    LOGW("unknown GraphicPixelFormat %d", format);
     return nullopt;
 }
 
@@ -225,7 +234,7 @@ std::optional<GraphicTransformType> TypeConverter::InnerRotateToDisplayRotate(Vi
     };
     auto it = table.find(rotate);
     if (it == table.end()) {
-        LOGW("unknown VideoRotation %{public}u", rotate);
+        LOGW("unknown VideoRotation %u", rotate);
         return std::nullopt;
     }
     return it->second;
@@ -248,7 +257,7 @@ Primaries TypeConverter::InnerPrimaryToOmxPrimary(ColorPrimary primary)
     };
     auto it = table.find(primary);
     if (it == table.end()) {
-        LOGW("unknown ColorPrimary %{public}d, use unspecified instead", primary);
+        LOGW("unknown ColorPrimary %d, use unspecified instead", primary);
         return PRIMARIES_UNSPECIFIED;
     }
     return it->second;
@@ -277,7 +286,7 @@ Transfer TypeConverter::InnerTransferToOmxTransfer(TransferCharacteristic transf
     };
     auto it = table.find(transfer);
     if (it == table.end()) {
-        LOGW("unknown TransferCharacteristic %{public}d, use unspecified instead", transfer);
+        LOGW("unknown TransferCharacteristic %d, use unspecified instead", transfer);
         return TRANSFER_UNSPECIFIED;
     }
     return it->second;
@@ -303,7 +312,7 @@ MatrixCoeffs TypeConverter::InnerMatrixToOmxMatrix(MatrixCoefficient matrix)
     };
     auto it = table.find(matrix);
     if (it == table.end()) {
-        LOGW("unknown MatrixCoefficient %{public}d, use unspecified instead", matrix);
+        LOGW("unknown MatrixCoefficient %d, use unspecified instead", matrix);
         return MATRIX_UNSPECIFED;
     }
     return it->second;
@@ -317,7 +326,7 @@ std::optional<AVCProfile> TypeConverter::OmxAvcProfileToInnerProfile(OMX_VIDEO_A
     if (it != g_avcProfileTable.end()) {
         return it->innerProfile;
     }
-    LOGW("unknown OMX_VIDEO_AVCPROFILETYPE %{public}d", profile);
+    LOGW("unknown OMX_VIDEO_AVCPROFILETYPE %d", profile);
     return nullopt;
 }
 
@@ -329,7 +338,7 @@ std::optional<AVCLevel> TypeConverter::OmxAvcLevelToInnerLevel(OMX_VIDEO_AVCLEVE
     if (it != g_avcLevelTable.end()) {
         return it->innerLevel;
     }
-    LOGW("unknown OMX_VIDEO_AVCLEVELTYPE %{public}d", level);
+    LOGW("unknown OMX_VIDEO_AVCLEVELTYPE %d", level);
     return nullopt;
 }
 
@@ -341,7 +350,7 @@ std::optional<HEVCProfile> TypeConverter::OmxHevcProfileToInnerProfile(CodecHevc
     if (it != g_hevcProfileTable.end()) {
         return it->innerProfile;
     }
-    LOGW("unknown CodecHevcProfile %{public}d", profile);
+    LOGW("unknown CodecHevcProfile %d", profile);
     return nullopt;
 }
 
@@ -353,7 +362,7 @@ std::optional<HEVCLevel> TypeConverter::OmxHevcLevelToInnerLevel(CodecHevcLevel 
     if (it != g_hevcLevelTable.end()) {
         return it->innerLevel;
     }
-    LOGW("unknown CodecHevcLevel %{public}d", level);
+    LOGW("unknown CodecHevcLevel %d", level);
     return nullopt;
 }
 
@@ -365,7 +374,7 @@ std::optional<OMX_VIDEO_AVCPROFILETYPE> TypeConverter::InnerAvcProfileToOmxProfi
     if (it != g_avcProfileTable.end()) {
         return it->omxProfile;
     }
-    LOGW("unknown AVCProfile %{public}d", profile);
+    LOGW("unknown AVCProfile %d", profile);
     return nullopt;
 }
 
@@ -377,7 +386,7 @@ std::optional<CodecHevcProfile> TypeConverter::InnerHevcProfileToOmxProfile(HEVC
     if (it != g_hevcProfileTable.end()) {
         return it->omxProfile;
     }
-    LOGW("unknown CodecHevcProfile %{public}d", profile);
+    LOGW("unknown CodecHevcProfile %d", profile);
     return nullopt;
 }
 
@@ -390,21 +399,9 @@ std::optional<VideoEncodeBitrateMode> TypeConverter::HdiBitrateModeToInnerMode(B
     };
     auto it = table.find(mode);
     if (it == table.end()) {
-        LOGW("unknown BitRateMode %{public}d", mode);
+        LOGW("unknown BitRateMode %d", mode);
         return std::nullopt;
     }
     return it->second;
-}
-
-std::optional<ScalingMode> TypeConverter::InnerScaleToSurfaceScale(OHOS::Media::Plugins::VideoScaleType scale)
-{
-    switch (scale) {
-        case OHOS::Media::Plugins::VideoScaleType::VIDEO_SCALE_TYPE_FIT:
-            return SCALING_MODE_SCALE_TO_WINDOW;
-        case OHOS::Media::Plugins::VideoScaleType::VIDEO_SCALE_TYPE_FIT_CROP:
-            return SCALING_MODE_SCALE_CROP;
-        default:
-            return nullopt;
-    }
 }
 }

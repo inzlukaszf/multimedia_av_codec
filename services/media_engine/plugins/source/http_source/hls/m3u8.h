@@ -46,10 +46,9 @@ struct M3U8InitFile {
 };
 
 struct M3U8Fragment {
-    M3U8Fragment(std::string uri, std::string title, double duration, int sequence, bool discont);
+    M3U8Fragment(std::string uri, double duration, int sequence, bool discont);
     M3U8Fragment(const M3U8Fragment& m3u8, const uint8_t *key, const uint8_t *iv);
     std::string uri_;
-    std::string title_;
     double duration_;
     int64_t sequence_;
     bool discont_ {false};
@@ -61,19 +60,19 @@ struct M3U8Fragment {
 
 struct M3U8Info {
     std::string uri;
-    std::string title;
     double duration = 0;
     bool discontinuity = false;
-    bool bVod;
+    bool bVod {false};
 };
 
 struct M3U8 {
     M3U8(std::string uri, std::string name);
     ~M3U8();
+    void InitTagUpdaters();
     void InitTagUpdatersMap();
-    bool Update(const std::string& playList);
+    bool Update(const std::string& playList, bool isNeedCleanFiles);
     void UpdateFromTags(std::list<std::shared_ptr<Tag>>& tags);
-    void GetExtInf(const std::shared_ptr<Tag>& tag, double& duration, std::string& title) const;
+    void GetExtInf(const std::shared_ptr<Tag>& tag, double& duration) const;
     double GetDuration() const;
     bool IsLive() const;
 
@@ -92,7 +91,6 @@ struct M3U8 {
     bool SaveData(uint8_t *data, uint32_t len);
     static void OnDownloadStatus(DownloadStatus status, std::shared_ptr<Downloader> &,
         std::shared_ptr<DownloadRequest> &request);
-    static bool Base64Decode(const uint8_t *src, uint32_t srcSize, uint8_t *dest, uint32_t *destSize);
     bool SetDrmInfo(std::multimap<std::string, std::vector<uint8_t>>& drmInfo);
     void StoreDrmInfos(const std::multimap<std::string, std::vector<uint8_t>>& drmInfo);
     void ProcessDrmInfos(void);
@@ -111,6 +109,8 @@ struct M3U8 {
     bool isDecryptAble_ { false };
     bool isDecryptKeyReady_ { false };
     std::multimap<std::string, std::vector<uint8_t>> localDrmInfos_;
+    M3U8Info firstFragment_;
+    std::atomic<bool> isFirstFragmentReady_ {false};
 };
 
 struct M3U8Media {
@@ -143,13 +143,19 @@ struct M3U8MasterPlaylist {
     M3U8MasterPlaylist(const std::string& playList, const std::string& uri);
     void UpdateMediaPlaylist();
     void UpdateMasterPlaylist();
+    void DownloadSessionKey(std::shared_ptr<Tag>& tag);
     std::list<std::shared_ptr<M3U8VariantStream>> variants_;
     std::shared_ptr<M3U8VariantStream> defaultVariant_;
     std::string uri_;
-    bool isSimple_ {false};
     std::string playList_;
     double duration_ {0};
-    bool bLive_ {false};
+    std::atomic<bool> isSimple_ {false};
+    std::atomic<bool> bLive_ {false};
+    bool isDecryptAble_ { false };
+    bool isDecryptKeyReady_ { false };
+    uint8_t iv_[16] { 0 };
+    uint8_t key_[16] { 0 };
+    size_t keyLen_ { 0 };
 };
 }
 }

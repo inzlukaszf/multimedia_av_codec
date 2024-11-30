@@ -19,11 +19,16 @@
 #include "avcodec_audio_common.h"
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AvCodec-FfmpegBaseDecoder"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_AUDIO, "AvCodec-FfmpegBaseDecoder"};
 constexpr uint8_t LOGD_FREQUENCY = 5;
+constexpr float TIME_BASE_FFMPEG = 1000000.f;
 constexpr AVSampleFormat DEFAULT_FFMPEG_SAMPLE_FORMAT = AV_SAMPLE_FMT_S16;
 static std::vector<OHOS::MediaAVCodec::AudioSampleFormat> supportedSampleFormats = {
-    OHOS::MediaAVCodec::AudioSampleFormat::SAMPLE_S16LE, OHOS::MediaAVCodec::AudioSampleFormat::SAMPLE_F32LE};
+    OHOS::MediaAVCodec::AudioSampleFormat::SAMPLE_U8,
+    OHOS::MediaAVCodec::AudioSampleFormat::SAMPLE_S16LE,
+    OHOS::MediaAVCodec::AudioSampleFormat::SAMPLE_S32LE,
+    OHOS::MediaAVCodec::AudioSampleFormat::SAMPLE_F32LE
+};
 } // namespace
 
 namespace OHOS {
@@ -34,11 +39,8 @@ FfmpegBaseDecoder::FfmpegBaseDecoder()
     : isFirst(true),
       hasExtra_(false),
       maxInputSize_(-1),
-      bufferNum_(1),
-      bufferIndex_(1),
-      preBufferGroupPts_(0),
-      curBufferGroupPts_(0),
-      bufferGroupPtsDistance(0),
+      nextPts_(0),
+      durationTime_(0.f),
       avCodec_(nullptr),
       avCodecContext_(nullptr),
       cachedFrame_(nullptr),
@@ -53,10 +55,6 @@ FfmpegBaseDecoder::~FfmpegBaseDecoder()
 {
     AVCODEC_LOGI("FfmpegBaseDecoder deconstructor running.");
     CloseCtxLocked();
-    if (avCodecContext_ != nullptr) {
-        avCodecContext_.reset();
-        avCodecContext_ = nullptr;
-    }
 }
 
 Status FfmpegBaseDecoder::ProcessSendData(const std::shared_ptr<AVBuffer> &inputBuffer)
@@ -116,7 +114,7 @@ Status FfmpegBaseDecoder::SendBuffer(const std::shared_ptr<AVBuffer> &inputBuffe
         dataCallback_->OnInputBufferDone(inputBuffer);
         return Status::OK;
     } else if (ret == AVERROR(EAGAIN)) {
-        AVCODEC_LOGW("skip this frame because data not enough, msg:%{public}s", AVStrError(ret).data());
+        AVCODEC_LOGD_LIMIT(LOGD_FREQUENCY, "skip frame data no enough, msg:%{public}s", AVStrError(ret).data());
         return Status::ERROR_NOT_ENOUGH_DATA;
     } else if (ret == AVERROR_EOF) {
         dataCallback_->OnInputBufferDone(inputBuffer);
@@ -151,25 +149,8 @@ Status FfmpegBaseDecoder::ReceiveBuffer(std::shared_ptr<AVBuffer> &outBuffer)
     Status status;
     if (ret >= 0) {
         AVCODEC_LOGD_LIMIT(LOGD_FREQUENCY, "receive one frame");
-        if (cachedFrame_->pts != AV_NOPTS_VALUE) {
-            preBufferGroupPts_ = curBufferGroupPts_;
-            curBufferGroupPts_ = cachedFrame_->pts;
-            if (bufferGroupPtsDistance == 0) {
-                bufferGroupPtsDistance = abs(curBufferGroupPts_ - preBufferGroupPts_);
-            }
-            if (bufferIndex_ >= bufferNum_) {
-                bufferNum_ = bufferIndex_;
-            }
-            bufferIndex_ = 1;
-        } else {
-            bufferIndex_++;
-            if (abs(curBufferGroupPts_ - preBufferGroupPts_) > bufferGroupPtsDistance) {
-                cachedFrame_->pts = curBufferGroupPts_;
-                preBufferGroupPts_ = curBufferGroupPts_;
-            } else {
-                cachedFrame_->pts =
-                    curBufferGroupPts_ + abs(curBufferGroupPts_ - preBufferGroupPts_) * (bufferIndex_ - 1) / bufferNum_;
-            }
+        if (cachedFrame_->pts == AV_NOPTS_VALUE) {
+            cachedFrame_->pts = nextPts_;
         }
         status = ReceiveFrameSucc(outBuffer);
         dataCallback_->OnOutputBufferDone(outBuffer);
@@ -180,7 +161,7 @@ Status FfmpegBaseDecoder::ReceiveBuffer(std::shared_ptr<AVBuffer> &outBuffer)
         status = Status::END_OF_STREAM;
         dataCallback_->OnOutputBufferDone(outBuffer);
     } else if (ret == AVERROR(EAGAIN)) {
-        AVCODEC_LOGW("audio decoder not enough data");
+        AVCODEC_LOGD_LIMIT(LOGD_FREQUENCY, "audio decoder not enough data");
         status = Status::ERROR_NOT_ENOUGH_DATA;
     } else {
         AVCODEC_LOGE("audio decoder receive unknow error,ffmpeg error message:%{public}s", AVStrError(ret).data());
@@ -193,11 +174,6 @@ Status FfmpegBaseDecoder::ReceiveBuffer(std::shared_ptr<AVBuffer> &outBuffer)
 
 Status FfmpegBaseDecoder::ConvertPlanarFrame(std::shared_ptr<AVBuffer> &outBuffer)
 {
-    convertedFrame_ = std::shared_ptr<AVFrame>(av_frame_alloc(), [](AVFrame *fp) { av_frame_free(&fp); });
-    if (convertedFrame_ == nullptr) {
-        AVCODEC_LOGE("av_frame_alloc failed");
-        return Status::ERROR_NO_MEMORY;
-    }
     if (resample_.ConvertFrame(convertedFrame_.get(), cachedFrame_.get()) != Status::OK) {
         AVCODEC_LOGE("convert frame failed");
         return Status::ERROR_UNKNOWN;
@@ -207,6 +183,30 @@ Status FfmpegBaseDecoder::ConvertPlanarFrame(std::shared_ptr<AVBuffer> &outBuffe
 
 Status FfmpegBaseDecoder::ReceiveFrameSucc(std::shared_ptr<AVBuffer> &outBuffer)
 {
+    if (isFirst) {
+        isFirst = false;
+        format_->SetData(Tag::AUDIO_SAMPLE_FORMAT,
+                         FFMpegConverter::ConvertFFMpegToOHAudioFormat(avCodecContext_->sample_fmt));
+        auto layout = FFMpegConverter::ConvertFFToOHAudioChannelLayoutV2(avCodecContext_->channel_layout,
+                                                                         avCodecContext_->channels);
+        if (avCodecContext_->channel_layout == 0 && avCodecContext_->channels == 1) { // 1 channel: mono
+            layout = AudioChannelLayout::MONO;
+            avCodecContext_->channel_layout = AV_CH_LAYOUT_MONO;
+        } else if (avCodecContext_->channel_layout == 0 && avCodecContext_->channels == 2) { // 2 channel: stereo
+            layout = AudioChannelLayout::STEREO;
+            avCodecContext_->channel_layout = AV_CH_LAYOUT_STEREO;
+        }
+        AVCODEC_LOGI("recode output description,layout:%{public}s channels:%{public}d nb_channels:%{public}d",
+                     FFMpegConverter::ConvertOHAudioChannelLayoutToString(layout).data(),
+                     avCodecContext_->channels, avCodecContext_->ch_layout.nb_channels);
+        format_->SetData(Tag::AUDIO_CHANNEL_LAYOUT, layout);
+        if (InitResample() != Status::OK) {
+            return Status::ERROR_UNKNOWN;
+        }
+        int32_t sampleRate = avCodecContext_->sample_rate;
+        durationTime_ = TIME_BASE_FFMPEG / sampleRate;
+    }
+    nextPts_ = cachedFrame_->pts + static_cast<int64_t>(cachedFrame_->nb_samples * durationTime_);
     auto outFrame = cachedFrame_;
     if (needResample_) {
         if (ConvertPlanarFrame(outBuffer) != Status::OK) {
@@ -224,29 +224,19 @@ Status FfmpegBaseDecoder::ReceiveFrameSucc(std::shared_ptr<AVBuffer> &outBuffer)
         return Status::ERROR_NO_MEMORY;
     }
     ioInfoMem->Write(outFrame->data[0], outputSize, 0);
-
-    if (isFirst) {
-        isFirst = false;
-        format_->SetData(Tag::AUDIO_SAMPLE_FORMAT,
-                         FFMpegConverter::ConvertFFMpegToOHAudioFormat(avCodecContext_->sample_fmt));
-        auto layout = FFMpegConverter::ConvertFFToOHAudioChannelLayout(avCodecContext_->channel_layout);
-        AVCODEC_LOGI("recode output description,layout:%{public}s",
-                     FFMpegConverter::ConvertOHAudioChannelLayoutToString(layout).data());
-        format_->SetData(Tag::AUDIO_CHANNEL_LAYOUT, layout);
-    }
     outBuffer->pts_ = cachedFrame_->pts;
     ioInfoMem->SetSize(outputSize);
-    return Status::OK;
+    if (needResample_) {
+        av_frame_unref(convertedFrame_.get());
+    }
+    return Status::ERROR_AGAIN;
 }
 
 Status FfmpegBaseDecoder::Reset()
 {
     std::lock_guard<std::mutex> lock(avMutext_);
     CloseCtxLocked();
-    if (avCodecContext_ != nullptr) {
-        avCodecContext_.reset();
-        avCodecContext_ = nullptr;
-    }
+    nextPts_ = 0;
     return Status::OK;
 }
 
@@ -254,10 +244,6 @@ Status FfmpegBaseDecoder::Release()
 {
     std::lock_guard<std::mutex> lock(avMutext_);
     auto ret = CloseCtxLocked();
-    if (avCodecContext_ != nullptr) {
-        avCodecContext_.reset();
-        avCodecContext_ = nullptr;
-    }
     return ret;
 }
 
@@ -267,6 +253,7 @@ Status FfmpegBaseDecoder::Flush()
     if (avCodecContext_ != nullptr) {
         avcodec_flush_buffers(avCodecContext_.get());
     }
+    nextPts_ = 0;
     return Status::OK;
 }
 
@@ -289,8 +276,10 @@ Status FfmpegBaseDecoder::AllocateContext(const std::string &name)
         context = avcodec_alloc_context3(avCodec_.get());
 
         avCodecContext_ = std::shared_ptr<AVCodecContext>(context, [](AVCodecContext *ptr) {
-            avcodec_free_context(&ptr);
-            avcodec_close(ptr);
+            if (ptr) {
+                avcodec_free_context(&ptr);
+                ptr = nullptr;
+            }
         });
         av_log_set_level(AV_LOG_ERROR);
     }
@@ -312,6 +301,25 @@ Status FfmpegBaseDecoder::InitContext(const std::shared_ptr<Meta> &format)
         return Status::ERROR_INVALID_PARAMETER;
     }
     format->GetData(Tag::MEDIA_BITRATE, avCodecContext_->bit_rate);
+    AudioChannelLayout channelLayout = UNKNOWN;
+    format->GetData(Tag::AUDIO_CHANNEL_LAYOUT, channelLayout);
+    auto ffChannelLayout = FFMpegConverter::ConvertOHAudioChannelLayoutToFFMpeg(channelLayout);
+    if (channelLayout != UNKNOWN) {
+        if (ffChannelLayout == AV_CH_LAYOUT_NATIVE) {
+            AVCODEC_LOGE("the value of channelLayout is not supported");
+            return Status::ERROR_INVALID_PARAMETER;
+        } else {
+            avCodecContext_->channel_layout = ffChannelLayout;
+        }
+    } else if (avCodecContext_->channels == 1) { // 1 channel: mono
+        AVCODEC_LOGW("1 channel channelLayout is unknow, set to default mono");
+        avCodecContext_->channel_layout = AV_CH_LAYOUT_MONO;
+    } else if (avCodecContext_->channels == 2) { // 2 channel: stereo
+        AVCODEC_LOGW("2 channel channelLayout is unknow, set to default stereo");
+        avCodecContext_->channel_layout = AV_CH_LAYOUT_STEREO;
+    } else {
+        AVCODEC_LOGW("channelLayout not set, unknow channelLayout");
+    }
     format->GetData(Tag::AUDIO_MAX_INPUT_SIZE, maxInputSize_);
 
     Status ret = SetCodecExtradata(format);
@@ -340,10 +348,6 @@ Status FfmpegBaseDecoder::OpenContext()
             AVCODEC_LOGE("avcodec open error %{public}s", AVStrError(res).c_str());
             return Status::ERROR_UNKNOWN;
         }
-
-        if (InitResample() != Status::OK) {
-            return Status::ERROR_UNKNOWN;
-        }
     }
     return Status::OK;
 }
@@ -361,7 +365,7 @@ Status FfmpegBaseDecoder::InitResample()
         ResamplePara resamplePara;
         resamplePara.channels = static_cast<uint32_t>(avCodecContext_->channels);
         resamplePara.sampleRate = static_cast<uint32_t>(avCodecContext_->sample_rate);
-        resamplePara.channelLayout = static_cast<uint32_t>(avCodecContext_->channel_layout);
+        resamplePara.channelLayout = avCodecContext_->ch_layout;
         resamplePara.destSamplesPerFrame = 0;
         resamplePara.bitsPerSample = 0;
         resamplePara.srcFfFmt = avCodecContext_->sample_fmt;
@@ -370,6 +374,11 @@ Status FfmpegBaseDecoder::InitResample()
         if (ret != Status::OK) {
             AVCODEC_LOGE("Resmaple init failed.");
             return Status::ERROR_UNKNOWN;
+        }
+        convertedFrame_ = std::shared_ptr<AVFrame>(av_frame_alloc(), [](AVFrame *fp) { av_frame_free(&fp); });
+        if (convertedFrame_ == nullptr) {
+            AVCODEC_LOGE("av_frame_alloc failed");
+            return Status::ERROR_NO_MEMORY;
         }
         needResample_ = true;
     }
@@ -399,11 +408,8 @@ std::shared_ptr<AVFrame> FfmpegBaseDecoder::GetCodecCacheFrame() const noexcept
 Status FfmpegBaseDecoder::CloseCtxLocked()
 {
     if (avCodecContext_ != nullptr) {
-        auto res = avcodec_close(avCodecContext_.get());
-        if (res != 0) {
-            AVCODEC_LOGE("avcodec close failed, res=%{public}d", res);
-            return Status::ERROR_UNKNOWN;
-        }
+        avCodecContext_.reset();
+        avCodecContext_ = nullptr;
     }
     return Status::OK;
 }
@@ -427,11 +433,22 @@ bool FfmpegBaseDecoder::CheckSampleFormat(const std::shared_ptr<Meta> &format, i
         EnableResample(DEFAULT_FFMPEG_SAMPLE_FORMAT);
         return true;
     }
-
     if (std::find(supportedSampleFormats.begin(), supportedSampleFormats.end(),
                   sampleFormat) == supportedSampleFormats.end()) {
-        AVCODEC_LOGW("Output sample format not support, change to default S16LE");
-        sampleFormat = AudioSampleFormat::SAMPLE_S16LE;
+        if (avCodecContext_ == nullptr) {
+            AVCODEC_LOGE("avCodecContext_ is nullptr");
+            return false;
+        }
+        auto audioFmt = FFMpegConverter::ConvertFFMpegToOHAudioFormat(avCodecContext_->sample_fmt);
+        if (std::find(supportedSampleFormats.begin(), supportedSampleFormats.end(),
+                      audioFmt) == supportedSampleFormats.end()) {
+            AVCODEC_LOGW("Output sample format not support, change to default S16LE");
+            sampleFormat = AudioSampleFormat::SAMPLE_S16LE;
+        } else {
+            AVCODEC_LOGW("Output sample format not support, change to algorithm default sampleFormat:%{public}" PRId32,
+                sampleFormat);
+            sampleFormat = audioFmt;
+        }
     }
     AVCODEC_LOGI("CheckSampleFormat AudioSampleFormat:%{public}" PRId32, sampleFormat);
     if (channels == 1 && sampleFormat == AudioSampleFormat::SAMPLE_F32LE) {

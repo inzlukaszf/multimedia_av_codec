@@ -13,25 +13,27 @@
  * limitations under the License.
  */
 
-
 #include "codec_factory.h"
-#include <limits>
 #include <cinttypes>
 #include <dlfcn.h>
+#include <limits>
 #include "avcodec_errors.h"
 #include "avcodec_log.h"
-#include "audio_codec_adapter.h"
-#include "audio_codec.h"
+#include "codec_ability_singleton.h"
 #include "codeclist_core.h"
-#include "codeclist_utils.h"
 #include "meta/format.h"
-#ifndef CLIENT_SUPPORT_CODEC
-#include "fcodec.h"
+#ifdef CLIENT_SUPPORT_CODEC
+#include "audio_codec.h"
+#include "audio_codec_adapter.h"
+#else
+#include "fcodec_loader.h"
+#include "hevc_decoder_loader.h"
 #include "hcodec_loader.h"
 #endif
+
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "CodecFactory"};
-}
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_FRAMEWORK, "CodecFactory"};
+} // namespace
 
 namespace OHOS {
 namespace MediaAVCodec {
@@ -41,27 +43,17 @@ CodecFactory &CodecFactory::Instance()
     return inst;
 }
 
-CodecFactory::~CodecFactory()
-{
-}
+CodecFactory::~CodecFactory() {}
 
-std::shared_ptr<CodecBase> CodecFactory::CreateCodecByMime(bool isEncoder,
-    const std::string &mime, API_VERSION apiVersion)
+std::vector<std::string> CodecFactory::GetCodecNameArrayByMime(const std::string &mime, const bool isEncoder)
 {
-    std::shared_ptr<CodecListCore> codecListCore = std::make_shared<CodecListCore>();
-    std::string codecname;
-    Format format;
-    format.PutStringValue("codec_mime", mime);
-    if (isEncoder) {
-        codecname = codecListCore->FindEncoder(format);
-    } else {
-        codecname = codecListCore->FindDecoder(format);
-    }
-    CHECK_AND_RETURN_RET_LOG(!codecname.empty(), nullptr, "Create codec by mime failed: error mime type");
-    
-    std::shared_ptr<CodecBase> codec = CreateCodecByName(codecname, apiVersion);
-    EXPECT_AND_LOGI(codec != nullptr, "Succeed");
-    return codec;
+    auto codecListCore = std::make_shared<CodecListCore>();
+    auto nameArray = codecListCore->FindCodecNameArray(mime, isEncoder);
+#ifndef CLIENT_SUPPORT_CODEC
+    auto checkFunc = [](const std::string &str) { return str.find("secure") != std::string::npos; };
+    nameArray.erase(std::remove_if(nameArray.begin(), nameArray.end(), checkFunc), nameArray.end());
+#endif
+    return nameArray;
 }
 
 std::shared_ptr<CodecBase> CodecFactory::CreateCodecByName(const std::string &name, API_VERSION apiVersion)
@@ -75,7 +67,10 @@ std::shared_ptr<CodecBase> CodecFactory::CreateCodecByName(const std::string &na
             codec = HCodecLoader::CreateByName(name);
             break;
         case CodecType::AVCODEC_VIDEO_CODEC:
-            codec = std::make_shared<Codec::FCodec>(name);
+            codec = FCodecLoader::CreateByName(name);
+            break;
+        case CodecType::AVCODEC_VIDEO_HEVC_DECODER:
+            codec = HevcDecoderLoader::CreateByName(name);
             break;
 #else
         case CodecType::AVCODEC_AUDIO_CODEC:
@@ -84,8 +79,8 @@ std::shared_ptr<CodecBase> CodecFactory::CreateCodecByName(const std::string &na
             } else {
                 codec = std::make_shared<AudioCodec>();
                 auto ret = codec->CreateCodecByName(name);
-                CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, nullptr,
-                                         "Create codec by name:%{public}s failed", name.c_str());
+                CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, nullptr, "Create codec by name:%{public}s failed",
+                                         name.c_str());
             }
             break;
 #endif
@@ -94,7 +89,7 @@ std::shared_ptr<CodecBase> CodecFactory::CreateCodecByName(const std::string &na
             return codec;
     }
     (void)apiVersion;
-    AVCODEC_LOGD("Create codec %{public}s successful", name.c_str());
+    EXPECT_AND_LOGI(codec != nullptr, "Create codec %{public}s successful", name.c_str());
     return codec;
 }
 } // namespace MediaAVCodec

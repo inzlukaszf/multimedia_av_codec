@@ -18,7 +18,7 @@
 #include "avcodec_errors.h"
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "CodecListClient"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_FRAMEWORK, "CodecListClient"};
 }
 
 namespace OHOS {
@@ -49,6 +49,11 @@ void CodecListClient::AVCodecServerDied()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     codecListProxy_ = nullptr;
+}
+
+bool CodecListClient::IsServiceDied()
+{
+    return codecListProxy_ == nullptr;
 }
 
 std::string CodecListClient::FindDecoder(const Format &format)

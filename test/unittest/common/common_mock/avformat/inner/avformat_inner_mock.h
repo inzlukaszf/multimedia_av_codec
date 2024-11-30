@@ -24,6 +24,7 @@ namespace MediaAVCodec {
 class AVFormatInnerMock : public FormatMock {
 public:
     explicit AVFormatInnerMock(const Format &format) : format_(format) {}
+    explicit AVFormatInnerMock(Format &&format) : format_(format) {}
     AVFormatInnerMock() = default;
     bool PutIntValue(const std::string_view &key, int32_t value) override;
     bool GetIntValue(const std::string_view &key, int32_t &value) override;
@@ -41,6 +42,8 @@ public:
     void InitTrackFormat() override {};
     void InitAudioTrackFormat(const std::string_view &mimeType, int32_t sampleRate, int32_t channelCount) override;
     void InitVideoTrackFormat(const std::string_view &mimeType, int32_t width, int32_t height) override;
+    void InitMetadataTrackFormat(
+        const std::string_view &mimeType, const std::string_view &key, int32_t srcTrackID) override;
     const char *DumpInfo() override;
     Format &GetFormat();
 

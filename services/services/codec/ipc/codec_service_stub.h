@@ -32,11 +32,11 @@ public:
     virtual ~CodecServiceStub();
 
     int OnRemoteRequest(uint32_t code, MessageParcel &data, MessageParcel &reply, MessageOption &option) override;
-    using CodecStubFunc = int32_t(CodecServiceStub::*)(MessageParcel &data, MessageParcel &reply);
     int32_t SetListenerObject(const sptr<IRemoteObject> &object) override;
 
-    int32_t Init(AVCodecType type, bool isMimeType, const std::string &name) override;
+    int32_t Init(AVCodecType type, bool isMimeType, const std::string &name, Meta &callerInfo) override;
     int32_t Configure(const Format &format) override;
+    int32_t Prepare() override;
     int32_t Start() override;
     int32_t Stop() override;
     int32_t Flush() override;
@@ -47,8 +47,10 @@ public:
     int32_t SetOutputSurface(sptr<Surface> surface) override;
     int32_t QueueInputBuffer(uint32_t index, AVCodecBufferInfo info, AVCodecBufferFlag flag) override;
     int32_t QueueInputBuffer(uint32_t index) override;
+    int32_t QueueInputParameter(uint32_t index) override;
     int32_t GetOutputFormat(Format &format) override;
     int32_t ReleaseOutputBuffer(uint32_t index, bool render) override;
+    int32_t RenderOutputBufferAtTime(uint32_t index, int64_t renderTimestampNs) override;
     int32_t SetParameter(const Format &format) override;
     int32_t GetInputFormat(Format &format) override;
 
@@ -57,8 +59,8 @@ public:
     int32_t SetDecryptConfig(const sptr<DrmStandard::IMediaKeySessionService> &keySession,
         const bool svpFlag) override;
 #endif
-    int32_t DumpInfo(int32_t fd);
-    int32_t SetClientInfo(int32_t clientPid, int32_t clientUid);
+    int32_t Dump(int32_t fd, const std::vector<std::u16string>& args) override;
+    int32_t SetCustomBuffer(std::shared_ptr<AVBuffer> buffer) override;
 
 private:
     CodecServiceStub();
@@ -66,6 +68,7 @@ private:
     int32_t SetListenerObject(MessageParcel &data, MessageParcel &reply);
     int32_t Init(MessageParcel &data, MessageParcel &reply);
     int32_t Configure(MessageParcel &data, MessageParcel &reply);
+    int32_t Prepare(MessageParcel &data, MessageParcel &reply);
     int32_t Start(MessageParcel &data, MessageParcel &reply);
     int32_t Stop(MessageParcel &data, MessageParcel &reply);
     int32_t Flush(MessageParcel &data, MessageParcel &reply);
@@ -77,16 +80,17 @@ private:
     int32_t QueueInputBuffer(MessageParcel &data, MessageParcel &reply);
     int32_t GetOutputFormat(MessageParcel &data, MessageParcel &reply);
     int32_t ReleaseOutputBuffer(MessageParcel &data, MessageParcel &reply);
+    int32_t RenderOutputBufferAtTime(MessageParcel &data, MessageParcel &reply);
     int32_t SetParameter(MessageParcel &data, MessageParcel &reply);
     int32_t GetInputFormat(MessageParcel &data, MessageParcel &reply);
     int32_t DestroyStub(MessageParcel &data, MessageParcel &reply);
 #ifdef SUPPORT_DRM
     int32_t SetDecryptConfig(MessageParcel &data, MessageParcel &reply);
 #endif
+    int32_t SetCustomBuffer(MessageParcel &data, MessageParcel &reply);
     int32_t InnerRelease();
 
     std::shared_ptr<ICodecService> codecServer_ = nullptr;
-    std::map<uint32_t, CodecStubFunc> recFuncs_;
     std::shared_mutex mutex_;
     sptr<IStandardCodecListener> listener_ = nullptr;
 };

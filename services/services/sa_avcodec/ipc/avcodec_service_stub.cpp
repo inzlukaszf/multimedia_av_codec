@@ -20,7 +20,7 @@
 
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AVCodecServiceStub"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_FRAMEWORK, "AVCodecServiceStub"};
 }
 
 namespace OHOS {
@@ -138,8 +138,11 @@ int32_t AVCodecServiceStub::GetSystemAbility(MessageParcel &data, MessageParcel 
     AVCodecSystemAbility id = static_cast<AVCodecSystemAbility>(data.ReadInt32());
     sptr<IRemoteObject> listenerObj = data.ReadRemoteObject();
 
-    (void)reply.WriteRemoteObject(GetSubSystemAbility(id, listenerObj));
-
+    sptr<IRemoteObject> stubObj = nullptr;
+    int32_t ret = GetSubSystemAbility(id, listenerObj, stubObj);
+    (void)reply.WriteRemoteObject(stubObj);
+    (void)reply.WriteInt32(ret);
+    
     return AVCS_ERR_OK;
 }
 } // namespace MediaAVCodec

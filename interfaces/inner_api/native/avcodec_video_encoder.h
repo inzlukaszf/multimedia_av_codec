@@ -29,7 +29,7 @@ public:
     virtual ~AVCodecVideoEncoder() = default;
 
     /**
-     * @brief Configure the encoder.
+     * @brief Configure the encoder. This interface must be called before {@link Prepare} is called.
      *
      * @param format The format of the input data and the desired format of the output data.
      * @return Returns {@link AVCS_ERR_OK} if success; returns an error code otherwise.
@@ -79,7 +79,8 @@ public:
     virtual int32_t Flush() = 0;
 
     /**
-     * @brief Notify eos of the encoder.
+     * @brief Notify eos of the encoder. It is recommended to use this interface to notify
+     * the encoder of the end of the stream in surface mode.
      *
      * @return Returns {@link AVCS_ERR_OK} if success; returns an error code otherwise.
      * @since 3.1
@@ -119,7 +120,8 @@ public:
     /**
      * @brief Submits input buffer to encoder.
      *
-     * This function must be called during running
+     * This function must be called during running. The {@link AVCodecCallback} callback
+     * will report the available input buffer and the corresponding index value.
      *
      * @param index The index of the input buffer.
      * @param info The info of the input buffer. For details, see {@link AVCodecBufferInfo}
@@ -133,13 +135,26 @@ public:
     /**
      * @brief Submits input buffer to encoder.
      *
-     * This function must be called during running
+     * This function must be called during running. The {@link MediaCodecCallback} callback
+     * will report the available input buffer and the corresponding index value.
      *
      * @param index The index of the input buffer.
      * @return Returns {@link AVCS_ERR_OK} if success; returns an error code otherwise.
      * @since 4.1
      */
     virtual int32_t QueueInputBuffer(uint32_t index) = 0;
+
+    /**
+     * @brief Submits input parameter to encoder.
+     *
+     * This function must be called during running. The {@link MediaCodecParameterCallback} callback
+     * will report the available input buffer and the corresponding index value.
+     *
+     * @param index The index of the input parameter.
+     * @return Returns {@link AVCS_ERR_OK} if success; returns an error code otherwise.
+     * @since 5.0
+     */
+    virtual int32_t QueueInputParameter(uint32_t index) = 0;
 
     /**
      * @brief Gets the format of the output data.
@@ -168,7 +183,8 @@ public:
     /**
      * @brief Sets the parameters to the encoder.
      *
-     * This function must be called after {@link Configure}
+     * This interface can only be called after the decoder is started.
+     * At the same time, incorrect parameter settings may cause decoding failure.
      *
      * @param format The parameters.
      * @return Returns {@link AVCS_ERR_OK} if success; returns an error code otherwise.
@@ -201,6 +217,29 @@ public:
     virtual int32_t SetCallback(const std::shared_ptr<MediaCodecCallback> &callback) = 0;
 
     /**
+     * @brief Registers a encoder listener.
+     *
+     * This function must be called before {@link Configure}
+     *
+     * @param callback Indicates the decoder listener to register. For details, see {@link MediaCodecParameterCallback}.
+     * @return Returns {@link AVCS_ERR_OK} if success; returns an error code otherwise.
+     * @since 5.0
+     */
+    virtual int32_t SetCallback(const std::shared_ptr<MediaCodecParameterCallback> &callback) = 0;
+
+    /**
+     * @brief Registers a encoder listener.
+     *
+     * This function must be called before {@link Configure}
+     *
+     * @param callback Indicates the decoder listener to register. For details, see {@link
+     * MediaCodecParameterWithAttrCallback}.
+     * @return Returns {@link AVCS_ERR_OK} if success; returns an error code otherwise.
+     * @since 5.0
+     */
+    virtual int32_t SetCallback(const std::shared_ptr<MediaCodecParameterWithAttrCallback> &callback) = 0;
+
+    /**
      * @brief Gets the format of the input data that accepted by the video encoder.
      *
      * This function must be called after {@link Configure}
@@ -211,6 +250,16 @@ public:
      * @version 4.0
      */
     virtual int32_t GetInputFormat(Format &format) = 0;
+
+    /**
+     * @brief Set custom buffer. If this interface is used, it must be invoked after {@link Configure}
+     * and before {@link Start}.
+     *
+     * @param buffer The buffer of the custom input image data, such as a watermark image.
+     * @return Returns {@link AVCS_ERR_OK} if success; returns an error code otherwise.
+     * @since 5.0
+     */
+    virtual int32_t SetCustomBuffer(std::shared_ptr<AVBuffer> buffer) = 0;
 };
 
 class __attribute__((visibility("default"))) VideoEncoderFactory {
@@ -226,6 +275,22 @@ public:
     {
         (void)name;
         return nullptr;
+    }
+        
+    static int32_t CreateByMime(const std::string &mime, Format &format, std::shared_ptr<AVCodecVideoEncoder> &encodec)
+    {
+        (void)name;
+        (void)format;
+        codec = nullptr;
+        return codec;
+    }
+
+    static int32_t CreateByName(const std::string &name, Format &format, std::shared_ptr<AVCodecVideoEncoder> &encodec)
+    {
+        (void)name;
+        (void)format;
+        codec = nullptr;
+        return codec;
     }
 #else
     /**
@@ -247,6 +312,30 @@ public:
      * @version 3.1
      */
     static std::shared_ptr<AVCodecVideoEncoder> CreateByName(const std::string &name);
+
+    /**
+     * @brief Instantiate the preferred decoder of the given mime type.
+     *
+     * @param mime The mime type.
+     * @param format Caller info
+     * @param codec The designated decoder.
+     * @return Returns {@link AVCS_ERR_OK} if success; returns an error code otherwise.
+     * @since 5.0
+     * @version 5.0
+     */
+    static int32_t CreateByMime(const std::string &mime, Format &format, std::shared_ptr<AVCodecVideoEncoder> &encodec);
+
+    /**
+     * @brief Instantiate the preferred decoder of the given mime type.
+     *
+     * @param mime The mime type.
+     * @param format Caller info
+     * @param codec The designated decoder.
+     * @return Returns {@link AVCS_ERR_OK} if success; returns an error code otherwise.
+     * @since 5.0
+     * @version 5.0
+     */
+    static int32_t CreateByName(const std::string &name, Format &format, std::shared_ptr<AVCodecVideoEncoder> &encodec);
 #endif
 private:
     VideoEncoderFactory() = default;

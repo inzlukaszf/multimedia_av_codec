@@ -78,8 +78,9 @@ protected:
     virtual void ClearAllBuffer() = 0;
     virtual bool Stop() = 0;
     virtual bool Release() = 0;
+    static std::string GetCodecMime(const CodeType& type);
 
-    const CommandOpt opt_;
+    CommandOpt opt_;
     std::ifstream ifs_;
 
     std::mutex inputMtx_;
@@ -99,6 +100,8 @@ protected:
     // encoder only
     bool RunEncoder();
     virtual bool ConfigureEncoder() = 0;
+    virtual bool SetEncoderParameter(const SetParameterParams& param) { return true; }
+    virtual bool SetEncoderPerFrameParam(BufInfo& buf, const PerFrameParams& param) { return true; }
     virtual sptr<Surface> CreateInputSurface() = 0;
     virtual bool NotifyEos() = 0;
     virtual bool RequestIDR() = 0;

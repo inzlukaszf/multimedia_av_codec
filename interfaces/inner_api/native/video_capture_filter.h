@@ -26,7 +26,6 @@
 #include "buffer/avbuffer_queue_producer.h"
 #include "buffer/avbuffer_queue_consumer.h"
 #include "common/status.h"
-#include "common/log.h"
 
 #define TIME_NONE ((int64_t) -1)
 
@@ -40,17 +39,16 @@ public:
     Status SetCodecFormat(const std::shared_ptr<Meta> &format);
     void Init(const std::shared_ptr<EventReceiver> &receiver,
         const std::shared_ptr<FilterCallback> &callback) override;
-    void SetLogTag(std::string logTag);
     Status Configure(const std::shared_ptr<Meta> &parameter);
     Status SetInputSurface(sptr<Surface> surface);
     sptr<Surface> GetInputSurface();
-    Status Prepare() override;
-    Status Start() override;
-    Status Pause() override;
-    Status Resume() override;
-    Status Stop() override;
-    Status Flush() override;
-    Status Release() override;
+    Status DoPrepare() override;
+    Status DoStart() override;
+    Status DoPause() override;
+    Status DoResume() override;
+    Status DoStop() override;
+    Status DoFlush() override;
+    Status DoRelease() override;
     Status NotifyEos();
     void SetParameter(const std::shared_ptr<Meta> &parameter) override;
     void GetParameter(std::shared_ptr<Meta> &parameter) override;
@@ -75,7 +73,7 @@ private:
     static constexpr uint32_t ENCODE_USAGE = BUFFER_USAGE_CPU_READ | BUFFER_USAGE_CPU_WRITE |
                                              BUFFER_USAGE_MEM_DMA | BUFFER_USAGE_VIDEO_ENCODER;
     std::string name_;
-    FilterType filterType_;
+    FilterType filterType_ = FilterType::VIDEO_CAPTURE;
 
     std::shared_ptr<EventReceiver> eventReceiver_;
     std::shared_ptr<FilterCallback> filterCallback_;
@@ -94,8 +92,6 @@ private:
     int64_t latestBufferTime_{TIME_NONE};
     int64_t latestPausedTime_{TIME_NONE};
     int64_t totalPausedTime_{0};
-
-    std::string logTag_ = "";
 };
 } // namespace Pipeline
 } // namespace MEDIA

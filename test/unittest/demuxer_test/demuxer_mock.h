@@ -16,6 +16,7 @@
 #ifndef DEMUXER_MOCK_H
 #define DEMUXER_MOCK_H
 
+#include <cinttypes>
 #include <string>
 #include <memory>
 #include "nocopyable.h"
@@ -35,8 +36,24 @@ public:
     virtual int32_t SelectTrackByID(uint32_t trackIndex) = 0;
     virtual int32_t UnselectTrackByID(uint32_t trackIndex) = 0;
     virtual int32_t ReadSample(uint32_t trackIndex, std::shared_ptr<AVMemoryMock> sample,
-        AVCodecBufferInfo *bufferInfo, uint32_t &flag) = 0;
+        AVCodecBufferInfo *bufferInfo, uint32_t &flag, bool checkBufferInfo = false) = 0;
     virtual int32_t SeekToTime(int64_t mSeconds, Media::SeekMode mode) = 0;
+    virtual int32_t SetMediaKeySystemInfoCallback(bool isNull)
+    {
+        return AV_ERR_OK;
+    }
+    virtual int32_t SetDemuxerMediaKeySystemInfoCallback(bool isNull)
+    {
+        return AV_ERR_OK;
+    }
+    virtual int32_t GetMediaKeySystemInfo()
+    {
+        return AV_ERR_OK;
+    }
+    virtual int32_t GetIndexByRelativePresentationTimeUs(const uint32_t trackIndex,
+        const uint64_t relativePresentationTimeUs, uint32_t &index) = 0;
+    virtual int32_t GetRelativePresentationTimeUsByIndex(const uint32_t trackIndex,
+        const uint32_t index, uint64_t &relativePresentationTimeUs) = 0;
 };
 
 class __attribute__((visibility("default"))) AVDemuxerMockFactory {

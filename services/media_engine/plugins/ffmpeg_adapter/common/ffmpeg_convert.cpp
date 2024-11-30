@@ -16,6 +16,10 @@
 #include "common/log.h"
 #include "securec.h"
 
+namespace {
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = { LOG_CORE, LOG_DOMAIN_AUDIO, "FfmpegConvert" };
+}
+
 namespace OHOS {
 namespace Media {
 namespace Plugins {
@@ -37,9 +41,13 @@ Status Resample::Init(const ResamplePara &resamplePara)
             MEDIA_LOG_E("cannot allocate swr context");
             return Status::ERROR_NO_MEMORY;
         }
-        swrContext = swr_alloc_set_opts(swrContext, resamplePara_.channelLayout, resamplePara_.destFmt,
-                                        resamplePara_.sampleRate, resamplePara_.channelLayout, resamplePara_.srcFfFmt,
-                                        resamplePara_.sampleRate, 0, nullptr);
+        int32_t error = swr_alloc_set_opts2(&swrContext, &resamplePara_.channelLayout, resamplePara_.destFmt,
+                                            resamplePara_.sampleRate, &resamplePara_.channelLayout,
+                                            resamplePara_.srcFfFmt, resamplePara_.sampleRate, 0, nullptr);
+        if (error < 0) {
+            MEDIA_LOG_E("swr init error");
+            return Status::ERROR_UNKNOWN;
+        }
         if (swr_init(swrContext) != 0) {
             MEDIA_LOG_E("swr init error");
             return Status::ERROR_UNKNOWN;
@@ -47,6 +55,7 @@ Status Resample::Init(const ResamplePara &resamplePara)
         swrCtx_ = std::shared_ptr<SwrContext>(swrContext, [](SwrContext *ptr) {
             if (ptr) {
                 swr_free(&ptr);
+                ptr = nullptr;
             }
         });
     }
@@ -62,9 +71,13 @@ Status Resample::InitSwrContext(const ResamplePara &resamplePara)
         MEDIA_LOG_E("cannot allocate swr context");
         return Status::ERROR_NO_MEMORY;
     }
-    swrContext =
-        swr_alloc_set_opts(swrContext, resamplePara_.channelLayout, resamplePara_.destFmt, resamplePara_.sampleRate,
-                           resamplePara_.channelLayout, resamplePara_.srcFfFmt, resamplePara_.sampleRate, 0, nullptr);
+    int32_t error =
+        swr_alloc_set_opts2(&swrContext, &resamplePara_.channelLayout, resamplePara_.destFmt, resamplePara_.sampleRate,
+                            &resamplePara_.channelLayout, resamplePara_.srcFfFmt, resamplePara_.sampleRate, 0, nullptr);
+    if (error < 0) {
+        MEDIA_LOG_E("swr init error");
+        return Status::ERROR_UNKNOWN;
+    }
     if (swr_init(swrContext) != 0) {
         MEDIA_LOG_E("swr init error");
         return Status::ERROR_UNKNOWN;
@@ -72,6 +85,7 @@ Status Resample::InitSwrContext(const ResamplePara &resamplePara)
     swrCtx_ = std::shared_ptr<SwrContext>(swrContext, [](SwrContext *ptr) {
         if (ptr) {
             swr_free(&ptr);
+            ptr = nullptr;
         }
     });
     return Status::OK;
@@ -142,7 +156,23 @@ Status Resample::ConvertFrame(AVFrame *outputFrame, const AVFrame *inputFrame)
         return Status::ERROR_NO_MEMORY;
     }
 
-    outputFrame->channel_layout = static_cast<uint64_t>(resamplePara_.channelLayout);
+    int planar = av_sample_fmt_is_planar(static_cast<AVSampleFormat>(inputFrame->format));
+    if (planar) {
+        for (auto i = 0; i < inputFrame->channels; i++) {
+            if (inputFrame->extended_data[i] == nullptr) {
+                MEDIA_LOG_E("this is a planar audio, inputFrame->channels: %{public}d, "
+                            "but inputFrame->extended_data[%{public}d] is nullptr", inputFrame->channels, i);
+                return Status::ERROR_NO_MEMORY;
+            }
+        }
+    } else {
+        if (inputFrame->extended_data[0] == nullptr) {
+            MEDIA_LOG_E("inputFrame->extended_data[0] is nullptr");
+            return Status::ERROR_NO_MEMORY;
+        }
+    }
+
+    outputFrame->ch_layout = resamplePara_.channelLayout;
     outputFrame->format = resamplePara_.destFmt;
     outputFrame->sample_rate = static_cast<int>(resamplePara_.sampleRate);
 
@@ -193,6 +223,14 @@ Status Scale::Convert(uint8_t **srcData, const int32_t *srcLineSize, uint8_t **d
     return Status::OK;
 }
 #endif
+Resample::~Resample()
+{
+#if defined(_WIN32) || !defined(OHOS_LITE)
+    if (swrCtx_) {
+        swrCtx_ = nullptr;
+    }
+#endif
+}
 } // namespace Ffmpeg
 } // namespace Plugins
 } // namespace Media

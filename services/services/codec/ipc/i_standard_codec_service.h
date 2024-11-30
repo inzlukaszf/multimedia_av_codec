@@ -34,8 +34,9 @@ public:
 
     virtual int32_t SetListenerObject(const sptr<IRemoteObject> &object) = 0;
 
-    virtual int32_t Init(AVCodecType type, bool isMimeType, const std::string &name) = 0;
+    virtual int32_t Init(AVCodecType type, bool isMimeType, const std::string &name, Media::Meta &callerInfo) = 0;
     virtual int32_t Configure(const Format &format) = 0;
+    virtual int32_t Prepare() = 0;
     virtual int32_t Start() = 0;
     virtual int32_t Stop() = 0;
     virtual int32_t Flush() = 0;
@@ -46,8 +47,10 @@ public:
     virtual int32_t SetOutputSurface(sptr<Surface> surface) = 0;
     virtual int32_t QueueInputBuffer(uint32_t index, AVCodecBufferInfo info, AVCodecBufferFlag flag) = 0;
     virtual int32_t QueueInputBuffer(uint32_t index) = 0;
+    virtual int32_t QueueInputParameter(uint32_t index) = 0;
     virtual int32_t GetOutputFormat(Format &format) = 0;
     virtual int32_t ReleaseOutputBuffer(uint32_t index, bool render) = 0;
+    virtual int32_t RenderOutputBufferAtTime(uint32_t index, int64_t renderTimestampNs) = 0;
     virtual int32_t SetParameter(const Format &format) = 0;
     virtual int32_t GetInputFormat(Format &format) = 0;
     virtual int32_t SetDecryptConfig(const sptr<DrmStandard::IMediaKeySessionService> &keySession,
@@ -57,6 +60,7 @@ public:
         (void)svpFlag;
         return 0;
     }
+    virtual int32_t SetCustomBuffer(std::shared_ptr<AVBuffer> buffer) = 0;
 
     virtual int32_t DestroyStub() = 0;
     DECLARE_INTERFACE_DESCRIPTOR(u"IStandardCodecService");

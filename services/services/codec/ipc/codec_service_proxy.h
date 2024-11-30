@@ -16,6 +16,7 @@
 #ifndef CODEC_SERVICE_PROXY_H
 #define CODEC_SERVICE_PROXY_H
 
+#include "avcodec_log.h"
 #include "codec_listener_stub.h"
 #include "i_standard_codec_service.h"
 #include "nocopyable.h"
@@ -29,8 +30,9 @@ public:
 
     int32_t SetListenerObject(const sptr<IRemoteObject> &object) override;
 
-    int32_t Init(AVCodecType type, bool isMimeType, const std::string &name) override;
+    int32_t Init(AVCodecType type, bool isMimeType, const std::string &name, Media::Meta &callerInfo) override;
     int32_t Configure(const Format &format) override;
+    int32_t Prepare() override;
     int32_t Start() override;
     int32_t Stop() override;
     int32_t Flush() override;
@@ -41,8 +43,10 @@ public:
     int32_t SetOutputSurface(sptr<Surface> surface) override;
     int32_t QueueInputBuffer(uint32_t index, AVCodecBufferInfo info, AVCodecBufferFlag flag) override;
     int32_t QueueInputBuffer(uint32_t index) override;
+    int32_t QueueInputParameter(uint32_t index) override;
     int32_t GetOutputFormat(Format &format) override;
     int32_t ReleaseOutputBuffer(uint32_t index, bool render) override;
+    int32_t RenderOutputBufferAtTime(uint32_t index, int64_t renderTimestampNs) override;
     int32_t SetParameter(const Format &format) override;
     int32_t GetInputFormat(Format &format) override;
 
@@ -52,10 +56,15 @@ public:
         const bool svpFlag) override;
 #endif
     void SetListener(const sptr<CodecListenerStub> &listener);
+    void InitLabel(const uint64_t uid);
+    int32_t SetCustomBuffer(std::shared_ptr<AVBuffer> buffer) override;
 
 private:
     static inline BrokerDelegator<CodecServiceProxy> delegator_;
     sptr<CodecListenerStub> listener_;
+
+    const OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_FRAMEWORK, "CodecServiceProxy"};
+    std::string tag_ = "";
 };
 } // namespace MediaAVCodec
 } // namespace OHOS

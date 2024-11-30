@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2023-2023 Huawei Device Co., Ltd.
+* Copyright (c) 2023-2024 Huawei Device Co., Ltd.
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
 * You may obtain a copy of the License at
@@ -33,19 +33,25 @@ public:
 
     void Init(const std::shared_ptr<EventReceiver>& receiver, const std::shared_ptr<FilterCallback>& callback) override;
 
-    Status Prepare() override;
+    Status DoInitAfterLink() override;
 
-    Status Start() override;
+    Status DoPrepare() override;
 
-    Status Pause() override;
+    Status DoStart() override;
 
-    Status Resume() override;
+    Status DoPause() override;
 
-    Status Flush() override;
+    Status DoResume() override;
 
-    Status Stop() override;
+    Status DoFlush() override;
 
-    Status Release() override;
+    Status DoStop() override;
+
+    Status DoRelease() override;
+
+    Status DoSetPlayRange(int64_t start, int64_t end) override;
+
+    Status DoProcessInputBuffer(int recvArg, bool dropFrame) override;
 
     void SetParameter(const std::shared_ptr<Meta>& meta) override;
 
@@ -69,17 +75,29 @@ public:
 
     Status SetIsTransitent(bool isTransitent);
 
+    Status ChangeTrack(std::shared_ptr<Meta>& meta);
+
+    Status SetMuted(bool isMuted) override;
 protected:
     Status OnUpdated(StreamType inType, const std::shared_ptr<Meta>& meta,
         const std::shared_ptr<FilterLinkCallback>& callback) override;
 
     Status OnUnLinked(StreamType inType, const std::shared_ptr<FilterLinkCallback>& callback) override;
 
+    class AVBufferAvailableListener : public IConsumerListener {
+    public:
+	    AVBufferAvailableListener(std::shared_ptr<AudioSinkFilter> audioSinkFilter);
+
+        void OnBufferAvailable() override;
+    private:
+	    std::weak_ptr<AudioSinkFilter> audioSinkFilter_;
+    };
+
 private:
     std::shared_ptr<AudioSink> audioSink_;
     std::string name_;
     FilterType filterType_;
-    FilterState state_;
+    FilterState state_ = FilterState::CREATED;
     std::shared_ptr<Meta> trackMeta_;
     std::shared_ptr<Meta> globalMeta_;
 
@@ -87,7 +105,7 @@ private:
     std::shared_ptr<FilterCallback> filterCallback_;
 
     std::shared_ptr<FilterLinkCallback> onLinkedResultCallback_;
-    std::shared_ptr<AVBufferQueueProducer> inputBufferQueueProducer_;
+    sptr<AVBufferQueueConsumer> inputBufferQueueConsumer_;
     int64_t frameCnt_ {0};
     Plugins::AudioRenderInfo audioRenderInfo_ {};
 

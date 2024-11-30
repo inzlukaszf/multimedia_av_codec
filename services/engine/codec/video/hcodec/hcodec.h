@@ -19,23 +19,22 @@
 #include <queue>
 #include <array>
 #include <functional>
+#include <unordered_set>
 #include "securec.h"
 #include "OMX_Component.h"  // third_party/openmax/api/1.1.2
 #include "codecbase.h"
 #include "avcodec_errors.h"
 #include "state_machine.h"
-#include "v2_0/codec_types.h"
-#include "v2_0/icodec_callback.h"
-#include "v2_0/icodec_component.h"
-#include "v2_0/icodec_component_manager.h"
+#include "codec_hdi.h"
 #include "type_converter.h"
 #include "buffer/avbuffer.h"
 #include "meta/meta_key.h" // foundation/multimedia/histreamer/interface/inner_api/
 
 namespace OHOS::MediaAVCodec {
-class HCodec : public CodecBase, protected StateMachine {
+class HCodec : public CodecBase, protected StateMachine, public std::enable_shared_from_this<HCodec> {
 public:
     static std::shared_ptr<HCodec> Create(const std::string &name);
+    int32_t Init(Media::Meta &callerInfo) override;
     int32_t SetCallback(const std::shared_ptr<MediaCodecCallback> &callback) override;
     int32_t Configure(const Format &format) override;
     sptr<Surface> CreateInputSurface() override;
@@ -51,12 +50,14 @@ public:
     int32_t SetParameter(const Format& format) override;
     int32_t GetInputFormat(Format& format) override;
     int32_t GetOutputFormat(Format& format) override;
+    std::string GetHidumperInfo() override;
 
     int32_t Start() override;
     int32_t Stop() override;
     int32_t Flush() override;
     int32_t Reset() override;
     int32_t Release() override;
+    virtual GSError OnBufferReleasedByConsumer(uint64_t surfaceId) { return GSERROR_OK; }
 
 protected:
     enum MsgWhat : MsgType {
@@ -78,12 +79,15 @@ protected:
         RENDER_OUTPUT_BUFFER,
         STOP,
         RELEASE,
+        GET_HIDUMPER_INFO,
+        PRINT_ALL_BUFFER_OWNER,
 
         INNER_MSG_BEGIN = 1000,
         CODEC_EVENT,
         OMX_EMPTY_BUFFER_DONE,
         OMX_FILL_BUFFER_DONE,
         GET_BUFFER_FROM_SURFACE,
+        CHECK_IF_REPEAT,
         CHECK_IF_STUCK,
         FORCE_SHUTDOWN,
     };
@@ -124,33 +128,46 @@ protected:
         bool isInput = true;
         BufferOwner owner = OWNED_BY_US;
         std::chrono::time_point<std::chrono::steady_clock> lastOwnerChangeTime;
+        std::chrono::time_point<std::chrono::steady_clock> lastFlushTime;
         uint32_t bufferId = 0;
-        std::shared_ptr<OHOS::HDI::Codec::V2_0::OmxCodecBuffer> omxBuffer;
-        sptr<SurfaceBuffer> surfaceBuffer;
+        std::shared_ptr<CodecHDI::OmxCodecBuffer> omxBuffer;
         std::shared_ptr<AVBuffer> avBuffer;
+        sptr<SurfaceBuffer> surfaceBuffer;
+        bool needDealWithCache = false;
 
+        void CleanUpUnusedInfo();
         void BeginCpuAccess();
         void EndCpuAccess();
         bool IsValidFrame() const;
-        void Dump(const std::string& prefix, DumpMode dumpMode, bool isEncoder) const;
+#ifdef BUILD_ENG_VERSION
+        void Dump(const std::string& prefix, uint64_t cnt, DumpMode dumpMode, bool isEncoder) const;
 
     private:
-        void Dump(const std::string& prefix) const;
-        void DumpSurfaceBuffer(const std::string& prefix) const;
-        void DecideDumpInfo(std::optional<uint32_t>& assumeAlignedH, std::string& suffix, bool& dumpAsVideo) const;
+        void Dump(const std::string& prefix, uint64_t cnt) const;
+        void DumpSurfaceBuffer(const std::string& prefix, uint64_t cnt) const;
+        void DecideDumpInfo(int& alignedH, uint32_t& totalSize, std::string& suffix, bool& dumpAsVideo) const;
         void DumpLinearBuffer(const std::string& prefix) const;
         static constexpr char DUMP_PATH[] = "/data/misc/hcodecdump";
+#endif
     };
 
 protected:
-    HCodec(OHOS::HDI::Codec::V2_0::CodecCompCapability caps, OMX_VIDEO_CODINGTYPE codingType, bool isEncoder);
+    HCodec(CodecHDI::CodecCompCapability caps, OMX_VIDEO_CODINGTYPE codingType, bool isEncoder);
     ~HCodec() override;
     static const char* ToString(MsgWhat what);
     static const char* ToString(BufferOwner owner);
     void ReplyErrorCode(MsgId id, int32_t err);
+    void OnPrintAllBufferOwner(const MsgInfo& msg);
     void PrintAllBufferInfo();
-    std::array<uint32_t, OWNER_CNT> CountOwner(bool isInput);
+    void PrintAllBufferInfo(bool isInput, std::chrono::time_point<std::chrono::steady_clock> now);
+    void PrintStatistic(bool isInput, std::chrono::time_point<std::chrono::steady_clock> now);
+    std::string OnGetHidumperInfo();
+    void UpdateOwner();
+    void UpdateOwner(bool isInput);
+    void ReduceOwner(bool isInput, BufferOwner owner);
     void ChangeOwner(BufferInfo& info, BufferOwner newOwner);
+    void ChangeOwnerNormal(BufferInfo& info, BufferOwner newOwner);
+    void ChangeOwnerDebug(BufferInfo& info, BufferOwner newOwner);
     void UpdateInputRecord(const BufferInfo& info, std::chrono::time_point<std::chrono::steady_clock> now);
     void UpdateOutputRecord(const BufferInfo& info, std::chrono::time_point<std::chrono::steady_clock> now);
 
@@ -164,9 +181,10 @@ protected:
     virtual void UpdateColorAspects() {}
     void PrintPortDefinition(const OMX_PARAM_PORTDEFINITIONTYPE& def);
     int32_t SetFrameRateAdaptiveMode(const Format &format);
-    int32_t SetProcessName(const Format &format);
+    int32_t SetProcessName();
+    int32_t SetLowLatency(const Format &format);
 
-    virtual int32_t OnSetOutputSurface(const sptr<Surface> &surface) { return AVCS_ERR_UNSUPPORT; }
+    virtual int32_t OnSetOutputSurface(const sptr<Surface> &surface, bool cfg) { return AVCS_ERR_UNSUPPORT; }
     virtual int32_t OnSetParameters(const Format &format) { return AVCS_ERR_OK; }
     virtual sptr<Surface> OnCreateInputSurface() { return nullptr; }
     virtual int32_t OnSetInputSurface(sptr<Surface> &inputSurface) { return AVCS_ERR_UNSUPPORT; }
@@ -175,23 +193,27 @@ protected:
     // start
     virtual bool ReadyToStart() = 0;
     virtual int32_t AllocateBuffersOnPort(OMX_DIRTYPE portIndex) = 0;
+    virtual void SetCallerToBuffer(int fd) {}
     virtual void UpdateFormatFromSurfaceBuffer() = 0;
     int32_t GetPortDefinition(OMX_DIRTYPE portIndex, OMX_PARAM_PORTDEFINITIONTYPE& def);
     int32_t AllocateAvSurfaceBuffers(OMX_DIRTYPE portIndex);
     int32_t AllocateAvLinearBuffers(OMX_DIRTYPE portIndex);
     int32_t AllocateAvHardwareBuffers(OMX_DIRTYPE portIndex, const OMX_PARAM_PORTDEFINITIONTYPE& def);
     int32_t AllocateAvSharedBuffers(OMX_DIRTYPE portIndex, const OMX_PARAM_PORTDEFINITIONTYPE& def);
-    std::shared_ptr<OHOS::HDI::Codec::V2_0::OmxCodecBuffer> SurfaceBufferToOmxBuffer(
+    std::shared_ptr<CodecHDI::OmxCodecBuffer> SurfaceBufferToOmxBuffer(
         const sptr<SurfaceBuffer>& surfaceBuffer);
-    std::shared_ptr<OHOS::HDI::Codec::V2_0::OmxCodecBuffer> DynamicSurfaceBufferToOmxBuffer();
+    std::shared_ptr<CodecHDI::OmxCodecBuffer> DynamicSurfaceBufferToOmxBuffer();
 
     virtual int32_t SubmitAllBuffersOwnedByUs() = 0;
     virtual int32_t SubmitOutputBuffersToOmxNode() { return AVCS_ERR_UNSUPPORT; }
     BufferInfo* FindBufferInfoByID(OMX_DIRTYPE portIndex, uint32_t bufferId);
     std::optional<size_t> FindBufferIndexByID(OMX_DIRTYPE portIndex, uint32_t bufferId);
-    virtual void OnGetBufferFromSurface() = 0;
+    virtual void OnGetBufferFromSurface(const ParamSP& param) = 0;
     uint32_t UserFlagToOmxFlag(AVCodecBufferFlag userFlag);
     AVCodecBufferFlag OmxFlagToUserFlag(uint32_t omxFlag);
+    bool WaitFence(const sptr<SyncFence>& fence);
+    void WrapSurfaceBufferToSlot(BufferInfo &info,
+        const sptr<SurfaceBuffer>& surfaceBuffer, int64_t pts, uint32_t flag);
 
     // input buffer circulation
     virtual void NotifyUserToFillThisInBuffer(BufferInfo &info);
@@ -200,14 +222,20 @@ protected:
     virtual void OnSignalEndOfInputStream(const MsgInfo &msg);
     int32_t NotifyOmxToEmptyThisInBuffer(BufferInfo& info);
     virtual void OnOMXEmptyBufferDone(uint32_t bufferId, BufferOperationMode mode) = 0;
+    virtual void RepeatIfNecessary(const ParamSP& param) {}
 
     // output buffer circulation
+    virtual void SubmitDynamicBufferIfPossible() {}
     int32_t NotifyOmxToFillThisOutBuffer(BufferInfo &info);
-    void OnOMXFillBufferDone(const OHOS::HDI::Codec::V2_0::OmxCodecBuffer& omxBuffer, BufferOperationMode mode);
+    void OnOMXFillBufferDone(const CodecHDI::OmxCodecBuffer& omxBuffer, BufferOperationMode mode);
     void OnOMXFillBufferDone(BufferOperationMode mode, BufferInfo& info, size_t bufferIdx);
     void NotifyUserOutBufferAvaliable(BufferInfo &info);
     void OnReleaseOutputBuffer(const MsgInfo &msg, BufferOperationMode mode);
+    virtual void OnReleaseOutputBuffer(const BufferInfo &info) {}
     virtual void OnRenderOutputBuffer(const MsgInfo &msg, BufferOperationMode mode);
+    virtual void ExtractPerFrameParamFromOmxBuffer(
+        const std::shared_ptr<CodecHDI::OmxCodecBuffer> &omxBuffer,
+        std::shared_ptr<Media::Meta> &meta) {}
 
     // stop/release
     void ReclaimBuffer(OMX_DIRTYPE portIndex, BufferOwner owner, bool erase = false);
@@ -215,6 +243,7 @@ protected:
     bool IsAllBufferOwnedByUsOrSurface();
     void EraseOutBuffersOwnedByUsOrSurface();
     void ClearBufferPool(OMX_DIRTYPE portIndex);
+    virtual void OnClearBufferPool(OMX_DIRTYPE portIndex) {}
     virtual void EraseBufferFromPool(OMX_DIRTYPE portIndex, size_t i) = 0;
     void FreeOmxBuffer(OMX_DIRTYPE portIndex, const BufferInfo& info);
     virtual void OnEnterUninitializedState() {}
@@ -279,22 +308,27 @@ protected:
     }
 
 protected:
-    OHOS::HDI::Codec::V2_0::CodecCompCapability caps_;
+    CodecHDI::CodecCompCapability caps_;
     OMX_VIDEO_CODINGTYPE codingType_;
     bool isEncoder_;
     bool isSecure_ = false;
+    std::string shortName_;
     uint32_t componentId_ = 0;
-    std::string componentName_;
     std::string compUniqueStr_;
+    struct CallerInfo {
+        int32_t pid = -1;
+        std::string processName;
+    } playerCaller_, avcodecCaller_;
+    bool calledByAvcodec_ = true;
     bool debugMode_ = false;
     DumpMode dumpMode_ = DUMP_NONE;
-    sptr<OHOS::HDI::Codec::V2_0::ICodecCallback> compCb_ = nullptr;
-    sptr<OHOS::HDI::Codec::V2_0::ICodecComponent> compNode_ = nullptr;
-    sptr<OHOS::HDI::Codec::V2_0::ICodecComponentManager> compMgr_ = nullptr;
+    sptr<CodecHDI::ICodecCallback> compCb_ = nullptr;
+    sptr<CodecHDI::ICodecComponent> compNode_ = nullptr;
+    sptr<CodecHDI::ICodecComponentManager> compMgr_ = nullptr;
 
     std::shared_ptr<MediaCodecCallback> callback_;
-    PixelFmt configuredFmt_;
-    BufferRequestConfig requestCfg_;
+    PixelFmt configuredFmt_{};
+    BufferRequestConfig requestCfg_{};
     std::shared_ptr<Format> configFormat_;
     std::shared_ptr<Format> inputFormat_;
     std::shared_ptr<Format> outputFormat_;
@@ -304,23 +338,43 @@ protected:
     bool isBufferCirculating_ = false;
     bool inputPortEos_ = false;
     bool outputPortEos_ = false;
+    bool gotFirstInput_ = false;
     bool gotFirstOutput_ = false;
+    bool outPortHasChanged_ = false;
 
     struct TotalCntAndCost {
         uint64_t totalCnt = 0;
         uint64_t totalCostUs = 0;
     };
-    std::array<std::array<TotalCntAndCost, OWNER_CNT>, OWNER_CNT> inputHoldTimeRecord_;
-    std::chrono::time_point<std::chrono::steady_clock> firstInTime_;
+
+    // whole lift time
     uint64_t inTotalCnt_ = 0;
-    std::array<std::array<TotalCntAndCost, OWNER_CNT>, OWNER_CNT> outputHoldTimeRecord_;
-    std::chrono::time_point<std::chrono::steady_clock> firstOutTime_;
     TotalCntAndCost outRecord_;
     std::unordered_map<int64_t, std::chrono::time_point<std::chrono::steady_clock>> inTimeMap_;
 
+    // normal: every 200 frames, debug: whole life time
+    static constexpr uint64_t PRINT_PER_FRAME = 200;
+    std::array<TotalCntAndCost, OWNER_CNT> inputHoldTimeRecord_;
+    std::array<TotalCntAndCost, OWNER_CNT> outputHoldTimeRecord_;
+    std::chrono::time_point<std::chrono::steady_clock> firstInTime_;
+    std::chrono::time_point<std::chrono::steady_clock> firstOutTime_;
+
+    // used when buffer circulation stoped
+    static constexpr char KEY_LAST_OWNER_CHANGE_TIME[] = "lastOwnerChangeTime";
+    std::chrono::time_point<std::chrono::steady_clock> lastOwnerChangeTime_;
+    uint32_t circulateWarnPrintedTimes_ = 0;
+    static constexpr uint32_t MAX_CIRCULATE_WARN_TIMES = 3;
+
+    std::array<int, HCodec::OWNER_CNT> inputOwner_ {};
+    std::array<std::string, HCodec::OWNER_CNT> inputOwnerStr_ {};
+    std::array<int, HCodec::OWNER_CNT> outputOwner_ {};
+    std::array<std::string, HCodec::OWNER_CNT> outputOwnerStr_ {};
+
     static constexpr char BUFFER_ID[] = "buffer-id";
     static constexpr uint32_t WAIT_FENCE_MS = 1000;
+    static constexpr uint32_t WARN_FENCE_MS = 30;
     static constexpr uint32_t STRIDE_ALIGNMENT = 32;
+    static constexpr double FRAME_RATE_COEFFICIENT = 65536.0;
 
 private:
     struct BaseState : State {
@@ -331,10 +385,10 @@ private:
         void OnMsgReceived(const MsgInfo &info) override;
         void ReplyErrorCode(MsgId id, int32_t err);
         void OnCodecEvent(const MsgInfo &info);
-        virtual void OnCodecEvent(OHOS::HDI::Codec::V2_0::CodecEventType event, uint32_t data1, uint32_t data2);
+        virtual void OnCodecEvent(CodecHDI::CodecEventType event, uint32_t data1, uint32_t data2);
         void OnGetFormat(const MsgInfo &info);
         virtual void OnShutDown(const MsgInfo &info) = 0;
-        void OnCheckIfStuck(const MsgInfo &info);
+        virtual void OnCheckIfStuck(const MsgInfo &info);
         void OnForceShutDown(const MsgInfo &info);
         void OnStateExited() override { codec_->stateGeneration_++; }
 
@@ -349,7 +403,6 @@ private:
     private:
         void OnStateEntered() override;
         void OnMsgReceived(const MsgInfo &info) override;
-        int32_t OnAllocateComponent(const std::string &name);
         void OnShutDown(const MsgInfo &info) override;
     };
 
@@ -361,7 +414,6 @@ private:
         void OnMsgReceived(const MsgInfo &info) override;
         void OnSetCallBack(const MsgInfo &info);
         void OnConfigure(const MsgInfo &info);
-        void OnSetSurface(const MsgInfo &info, bool isInput);
         void OnStart(const MsgInfo &info);
         void OnShutDown(const MsgInfo &info) override;
     };
@@ -373,7 +425,7 @@ private:
         void OnStateExited() override;
         void OnMsgReceived(const MsgInfo &info) override;
         int32_t AllocateBuffers();
-        void OnCodecEvent(OHOS::HDI::Codec::V2_0::CodecEventType event, uint32_t data1, uint32_t data2) override;
+        void OnCodecEvent(CodecHDI::CodecEventType event, uint32_t data1, uint32_t data2) override;
         void OnShutDown(const MsgInfo &info) override;
         void ReplyStartMsg(int32_t errCode);
         bool hasError_ = false;
@@ -384,7 +436,7 @@ private:
     private:
         void OnStateEntered() override;
         void OnMsgReceived(const MsgInfo &info) override;
-        void OnCodecEvent(OHOS::HDI::Codec::V2_0::CodecEventType event, uint32_t data1, uint32_t data2) override;
+        void OnCodecEvent(CodecHDI::CodecEventType event, uint32_t data1, uint32_t data2) override;
         void OnShutDown(const MsgInfo &info) override;
         void OnFlush(const MsgInfo &info);
         void OnSetParameters(const MsgInfo &info);
@@ -396,11 +448,12 @@ private:
     private:
         void OnStateEntered() override;
         void OnMsgReceived(const MsgInfo &info) override;
-        void OnCodecEvent(OHOS::HDI::Codec::V2_0::CodecEventType event, uint32_t data1, uint32_t data2) override;
+        void OnCodecEvent(CodecHDI::CodecEventType event, uint32_t data1, uint32_t data2) override;
         void OnShutDown(const MsgInfo &info) override;
         void HandleOutputPortDisabled();
         void HandleOutputPortEnabled();
         void OnFlush(const MsgInfo &info);
+        void OnCheckIfStuck(const MsgInfo &info) override;
     };
 
     struct FlushingState : BaseState {
@@ -408,7 +461,7 @@ private:
     private:
         void OnStateEntered() override;
         void OnMsgReceived(const MsgInfo &info) override;
-        void OnCodecEvent(OHOS::HDI::Codec::V2_0::CodecEventType event, uint32_t data1, uint32_t data2) override;
+        void OnCodecEvent(CodecHDI::CodecEventType event, uint32_t data1, uint32_t data2) override;
         void OnShutDown(const MsgInfo &info) override;
         void ChangeStateIfWeOwnAllBuffers();
         bool IsFlushCompleteOnAllPorts();
@@ -423,7 +476,7 @@ private:
     private:
         void OnStateEntered() override;
         void OnMsgReceived(const MsgInfo &info) override;
-        void OnCodecEvent(OHOS::HDI::Codec::V2_0::CodecEventType event, uint32_t data1, uint32_t data2) override;
+        void OnCodecEvent(CodecHDI::CodecEventType event, uint32_t data1, uint32_t data2) override;
         void OnShutDown(const MsgInfo &info) override;
         void ChangeStateIfWeOwnAllBuffers();
         void ChangeOmxNodeToLoadedState(bool forceToFreeBuffer);
@@ -431,29 +484,30 @@ private:
         bool omxNodeIsChangingToLoadedState_;
     };
 
-    class HdiCallback : public OHOS::HDI::Codec::V2_0::ICodecCallback {
+    class HdiCallback : public CodecHDI::ICodecCallback {
     public:
-        explicit HdiCallback(HCodec* codec) : codec_(codec) { }
+        explicit HdiCallback(std::weak_ptr<HCodec> codec) : codec_(codec) { }
         virtual ~HdiCallback() = default;
-        int32_t EventHandler(OHOS::HDI::Codec::V2_0::CodecEventType event,
-                             const OHOS::HDI::Codec::V2_0::EventInfo& info);
-        int32_t EmptyBufferDone(int64_t appData, const OHOS::HDI::Codec::V2_0::OmxCodecBuffer& buffer);
-        int32_t FillBufferDone(int64_t appData, const OHOS::HDI::Codec::V2_0::OmxCodecBuffer& buffer);
+        int32_t EventHandler(CodecHDI::CodecEventType event,
+                             const CodecHDI::EventInfo& info);
+        int32_t EmptyBufferDone(int64_t appData, const CodecHDI::OmxCodecBuffer& buffer);
+        int32_t FillBufferDone(int64_t appData, const CodecHDI::OmxCodecBuffer& buffer);
     private:
-        HCodec* codec_;
+        std::weak_ptr<HCodec> codec_;
     };
 
 private:
     int32_t DoSyncCall(MsgWhat msgType, std::function<void(ParamSP)> oper);
     int32_t DoSyncCallAndGetReply(MsgWhat msgType, std::function<void(ParamSP)> oper, ParamSP &reply);
-    int32_t InitWithName(const std::string &name);
+    void PrintCaller();
+    int32_t OnAllocateComponent();
     void ReleaseComponent();
     void CleanUpOmxNode();
-    void ChangeOmxToTargetState(OHOS::HDI::Codec::V2_0::CodecStateType &state,
-                                OHOS::HDI::Codec::V2_0::CodecStateType targetState);
+    void ChangeOmxToTargetState(CodecHDI::CodecStateType &state,
+                                CodecHDI::CodecStateType targetState);
     bool RollOmxBackToLoaded();
 
-    int32_t ForceShutdown(int32_t generation);
+    int32_t ForceShutdown(int32_t generation, bool isNeedNotifyCaller);
     void SignalError(AVCodecErrorType errorType, int32_t errorCode);
     void DeferMessage(const MsgInfo &info);
     void ProcessDeferredMessages();
@@ -463,7 +517,8 @@ private:
 private:
     static constexpr size_t MAX_HCODEC_BUFFER_SIZE = 8192 * 4096 * 4; // 8K RGBA
     static constexpr uint32_t THREE_SECONDS_IN_US = 3'000'000;
-    static constexpr double FRAME_RATE_COEFFICIENT = 65536.0;
+    static constexpr uint32_t ONE_SECONDS_IN_US = 1'000'000;
+    static constexpr uint32_t FIVE_SECONDS_IN_MS = 5'000;
 
     std::shared_ptr<UninitializedState> uninitializedState_;
     std::shared_ptr<InitializedState> initializedState_;

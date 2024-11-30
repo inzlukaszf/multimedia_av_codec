@@ -27,6 +27,7 @@
 #include "plugin/plugin_base.h"
 #include "download/downloader.h"
 #include "media_downloader.h"
+#include "common/media_source.h"
 
 namespace OHOS {
 namespace Media {
@@ -41,9 +42,9 @@ class DownloadMonitor : public MediaDownloader {
 public:
     explicit DownloadMonitor(std::shared_ptr<MediaDownloader> downloader) noexcept;
     ~DownloadMonitor() override = default;
-    bool Open(const std::string& url) override;
+    bool Open(const std::string& url, const std::map<std::string, std::string>& httpHeader) override;
     void Close(bool isAsync) override;
-    bool Read(unsigned char* buff, unsigned int wantReadLength, unsigned int& realReadLength, bool& isEos) override;
+    Status Read(unsigned char* buff, ReadDataInfo& readDataInfo) override;
     bool SeekToPos(int64_t offset) override;
     void Pause() override;
     void Resume() override;
@@ -53,14 +54,24 @@ public:
     void SetCallback(Callback *cb) override;
     void SetStatusCallback(StatusCallbackFunc cb) override;
     bool GetStartedStatus() override;
-    bool SeekToTime(int64_t seekTime) override;
+    bool SeekToTime(int64_t seekTime, SeekMode mode) override;
     std::vector<uint32_t> GetBitRates() override;
     bool SelectBitRate(uint32_t bitRate) override;
     void SetIsTriggerAutoMode(bool isAuto) override;
     void SetReadBlockingFlag(bool isReadBlockingAllowed) override;
 
+    void SetDemuxerState(int32_t streamId) override;
+    void SetPlayStrategy(const std::shared_ptr<PlayStrategy>& playStrategy) override;
+    void SetInterruptState(bool isInterruptNeeded) override;
+    Status GetStreamInfo(std::vector<StreamInfo>& streams) override;
+    Status SelectStream(int32_t streamId) override;
+    void GetDownloadInfo(DownloadInfo& downloadInfo) override;
+    std::pair<int32_t, int32_t> GetDownloadInfo() override;
+    Status SetCurrentBitRate(int32_t bitRate, int32_t streamID) override;
+    void GetPlaybackInfo(PlaybackInfo& playbackInfo) override;
+
 private:
-    void HttpMonitorLoop();
+    int64_t HttpMonitorLoop();
     void OnDownloadStatus(std::shared_ptr<Downloader>& downloader, std::shared_ptr<DownloadRequest>& request);
     bool NeedRetry(const std::shared_ptr<DownloadRequest>& request);
 
@@ -71,6 +82,7 @@ private:
     time_t lastReadTime_ {0};
     Callback* callback_ {nullptr};
     Mutex taskMutex_ {};
+    uint64_t haveReadData_ {0};
 };
 }
 }

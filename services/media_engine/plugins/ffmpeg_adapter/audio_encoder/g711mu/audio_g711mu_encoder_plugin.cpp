@@ -27,7 +27,7 @@ using namespace OHOS::Media;
 using namespace OHOS::Media::Plugins;
 using namespace G711mu;
 
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AvCodec-AudioG711MuEncoderPlugin"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_AUDIO, "AvCodec-AudioG711MuEncoderPlugin"};
 constexpr int32_t SUPPORT_CHANNELS = 1;
 constexpr int SUPPORT_SAMPLE_RATE = 8000;
 constexpr int INPUT_BUFFER_SIZE_DEFAULT = 1280;  // 20ms:320
@@ -81,6 +81,7 @@ AudioG711muEncoderPlugin::AudioG711muEncoderPlugin(const std::string& name)
       audioSampleFormat_(AudioSampleFormat::SAMPLE_S16LE),
       channels_(SUPPORT_CHANNELS),
       sampleRate_(SUPPORT_SAMPLE_RATE),
+      pts_(0),
       maxInputSize_(INPUT_BUFFER_SIZE_DEFAULT),
       maxOutputSize_(OUTPUT_BUFFER_SIZE_DEFAULT)
 {
@@ -185,6 +186,7 @@ Status AudioG711muEncoderPlugin::QueueInputBuffer(const std::shared_ptr<AVBuffer
         if (memory->GetSize() % sizeof(int16_t) == 1) {
             AVCODEC_LOGE("AudioG711muEncoderPlugin inputBuffer size in bytes is odd and the last byte is ignored");
         }
+        pts_ = inputBuffer->pts_;
         dataCallback_->OnInputBufferDone(inputBuffer);
     }
     return Status::OK;
@@ -202,6 +204,7 @@ Status AudioG711muEncoderPlugin::QueueOutputBuffer(std::shared_ptr<AVBuffer>& ou
         auto outSize = sizeof(uint8_t) * encodeResult_.size();
         memory->Write(reinterpret_cast<const uint8_t *>(encodeResult_.data()), outSize, 0);
         memory->SetSize(outSize);
+        outputBuffer->pts_ = pts_;
         dataCallback_->OnOutputBufferDone(outputBuffer);
     }
     return Status::OK;

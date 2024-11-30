@@ -17,14 +17,25 @@
 #define HISTREAMER_HTTP_CURL_CLIENT_H
 
 #include <string>
+#include <list>
 #include "network_client.h"
 #include "curl/curl.h"
 #include "osal/task/mutex.h"
+#include "syspara/parameter.h"
 
 namespace OHOS {
 namespace Media {
 namespace Plugins {
 namespace HttpPlugin {
+
+std::string ToString(const std::list<std::string> &lists, char tab = ',');
+std::string InsertCharBefore(std::string input, char from, char preChar, char nextChar);
+std::string Trim(std::string str);
+bool IsRegexValid(const std::string &regex);
+std::string ReplaceCharacters(const std::string &input);
+bool IsMatch(const std::string &str, const std::string &patternStr);
+bool IsExcluded(const std::string &str, const std::string &exclusions, const std::string &split);
+
 class HttpCurlClient : public NetworkClient {
 public:
     HttpCurlClient(RxHeader headCallback, RxBody bodyCallback, void* userParam);
@@ -33,23 +44,39 @@ public:
 
     Status Init() override;
 
-    Status Open(const std::string& url) override;
+    Status Open(const std::string& url, const std::map<std::string, std::string>& httpHeader,
+                int32_t timeoutMs) override;
 
     Status RequestData(long startPos, int len, NetworkServerErrorCode& serverCode,
                        NetworkClientErrorCode& clientCode) override;
 
-    Status Close() override;
+    Status Close(bool isAsync) override;
 
     Status Deinit() override;
+    Status GetIp(std::string &ip) override;
+
 private:
-    void InitCurlEnvironment(const std::string& url);
+    void InitCurlEnvironment(const std::string& url, int32_t timeoutMs);
+    void InitCurProxy(const std::string& url);
     std::string UrlParse(const std::string& url) const;
+    void HttpHeaderParse(std::map<std::string, std::string> httpHeader);
+    static std::string ClearHeadTailSpace(std::string& str);
+    void CheckRequestRange(long startPos, int len);
+    void HandleUserAgent();
+    Status SetIp();
+
 private:
     RxHeader rxHeader_;
     RxBody rxBody_;
     void *userParam_;
     CURL* easyHandle_ {nullptr};
     mutable Mutex mutex_;
+    bool isSetUA_ {false};
+    struct curl_slist* headerList_ {nullptr};
+    std::string ip_ {};
+    bool ipFlag_ {false};
+    bool isFirstRequest_ {true};
+    bool isFirstOpen_ {true};
 };
 }
 }

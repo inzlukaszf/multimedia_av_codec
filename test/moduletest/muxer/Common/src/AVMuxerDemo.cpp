@@ -33,6 +33,10 @@ int32_t AVMuxerDemo::GetFdByMode(OH_AVOutputFormat format)
         filename = "output.mp4";
     } else if (format == AV_OUTPUT_FORMAT_M4A) {
         filename = "output.m4a";
+    } else if (format == AV_OUTPUT_FORMAT_AMR) {
+        filename = "output.amr";
+    } else if (format == AV_OUTPUT_FORMAT_MP3) {
+        filename = "output.mp3";
     } else {
         filename = "output.bin";
     }
@@ -47,7 +51,7 @@ int32_t AVMuxerDemo::GetFdByMode(OH_AVOutputFormat format)
 int32_t AVMuxerDemo::GetErrorFd()
 {
     filename = "output.bin";
-    int32_t fd = open(filename.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+    int32_t fd = open(filename.c_str(), O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         std::cout << "Open file failed! filePath is: " << filename << std::endl;
         return -1;
@@ -61,6 +65,10 @@ int32_t AVMuxerDemo::GetFdByName(OH_AVOutputFormat format, string fileName)
         filename = fileName + ".mp4";
     } else if (format == AV_OUTPUT_FORMAT_M4A) {
         filename = fileName + ".m4a";
+    } else if (format == AV_OUTPUT_FORMAT_AMR) {
+        filename = fileName + ".amr";
+    } else if (format == AV_OUTPUT_FORMAT_MP3) {
+        filename = fileName + ".mp3";
     } else {
         filename = fileName + ".bin";
     }

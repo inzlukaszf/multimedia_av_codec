@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2022 Huawei Device Co., Ltd.
+ * Copyright (C) 2023 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -40,7 +40,7 @@ public:
 
     Status Init() override;
 
-    Status Deinit() override;
+    __attribute__((no_sanitize("cfi"))) Status Deinit() override;
 
     Status Prepare() override;
 
@@ -116,6 +116,7 @@ public:
 
     Status SetAudioEffectMode(int32_t effectMode) override;
 
+    Status SetMuted(bool isMuted) override;
 private:
     class AudioRendererCallbackImpl : public OHOS::AudioStandard::AudioRendererCallback,
         public OHOS::AudioStandard::AudioRendererOutputDeviceChangeCallback {
@@ -146,7 +147,7 @@ private:
         std::shared_ptr<Pipeline::EventReceiver> playerEventReceiver_;
     };
     void ReleaseRender();
-    void ReleaseFile();
+    __attribute__((no_sanitize("cfi"))) void ReleaseFile();
     bool StopRender();
     bool AssignSampleRateIfSupported(uint32_t sampleRate);
     bool AssignChannelNumIfSupported(uint32_t channelNum);
@@ -167,10 +168,14 @@ private:
     void SetUpAppUidSetter();
     void SetUpAudioRenderInfoSetter();
     void SetUpAudioInterruptModeSetter();
-
+    void SetUpAudioRenderSetFlagSetter();
     void SetAudioDumpBySysParam();
     void DumpEntireAudioBuffer(uint8_t* buffer, const size_t& bytesSingle);
     void DumpSliceAudioBuffer(uint8_t* buffer, const size_t& bytesSingle);
+    void CacheData(uint8_t* inputBuffer, size_t bufferSize);
+    Status DrainCacheData(bool render);
+    //return value is the remained buffer size
+    size_t WriteAudioBuffer(uint8_t* inputBuffer, size_t bufferSize, bool& shouldDrop);
 
     OHOS::Media::Mutex renderMutex_{};
     Callback *callback_{};
@@ -190,7 +195,7 @@ private:
     AVSampleFormat reSrcFfFmt_{AV_SAMPLE_FMT_NONE};
     const AudioStandard::AudioSampleFormat reStdDestFmt_{AudioStandard::AudioSampleFormat::SAMPLE_S16LE};
     AudioChannelLayout channelLayout_{};
-    std::string mime_type_;
+    std::string mimeType_;
     uint32_t channels_{};
     uint32_t samplesPerFrame_{};
     uint32_t bitsPerSample_{0};
@@ -211,6 +216,8 @@ private:
     int32_t curCount_ {-1};
     bool enableEntireDump_ {false};
     bool enableDumpSlice_ {false};
+    bool audioRenderSetFlag_ {false};
+    std::list<std::vector<uint8_t>> cachedBuffers_;
 };
 } // namespace Plugin
 } // namespace Media

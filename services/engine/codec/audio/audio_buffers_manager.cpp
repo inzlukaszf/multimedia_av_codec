@@ -17,7 +17,7 @@
 #include "avcodec_log.h"
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AvCodec-AudioBuffersManager"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_AUDIO, "AvCodec-AudioBuffersManager"};
 constexpr uint8_t LOGD_FREQUENCY = 5;
 } // namespace
 
@@ -46,14 +46,12 @@ std::shared_ptr<AudioBufferInfo> AudioBuffersManager::getMemory(const uint32_t &
         return nullptr;
     }
     AVCODEC_LOGD_LIMIT(LOGD_FREQUENCY, "start get memory,name:%{public}s,index:%{public}u", name_.data(), index);
-    std::lock_guard<std::mutex> lock(stateMutex_);
     return bufferInfo_[index];
 }
 
 bool AudioBuffersManager::SetBufferBusy(const uint32_t &index)
 {
     if (index < bufferInfo_.size()) {
-        std::lock_guard<std::mutex> lock(stateMutex_);
         bufferInfo_[index]->SetBufferOwned();
         return true;
     }
@@ -155,7 +153,6 @@ bool AudioBuffersManager::ReleaseBuffer(const uint32_t &index)
 
 std::shared_ptr<AudioBufferInfo> AudioBuffersManager::createNewBuffer()
 {
-    std::lock_guard<std::mutex> lock(stateMutex_);
     std::shared_ptr<AudioBufferInfo> buffer = std::make_shared<AudioBufferInfo>(bufferSize_, name_, metaSize_);
     bufferInfo_.emplace_back(buffer);
     return buffer;

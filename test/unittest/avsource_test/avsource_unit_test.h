@@ -69,6 +69,8 @@ protected:
         std::string composer = "";
         int32_t hasVideo = -1;
         int32_t hasAudio = -1;
+        int32_t hasTimedMeta = -1;
+        int32_t hasSubtitle = -1;
         int32_t fileType = 0;
         // track format
         std::string codecMime = "";
@@ -82,6 +84,7 @@ protected:
         int32_t audioSampleFormat = 0;
         double frameRate = 0;
         int32_t rotationAngle = 0;
+        int32_t orientationType = 0;
         int64_t channelLayout = 0;
         int32_t hdrType = 0;
         int32_t codecProfile = 0;
@@ -91,6 +94,8 @@ protected:
         int32_t rangeFlag = 0;
         int32_t matrixCoefficients = 0;
         int32_t chromaLocation = 0;
+        std::string timedMetadataKey = "";
+        int32_t srcTrackID = -1;
         // hevc format
         int32_t profile = 0;
         int32_t level = 0;

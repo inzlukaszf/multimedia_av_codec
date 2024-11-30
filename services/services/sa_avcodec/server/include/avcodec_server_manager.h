@@ -20,58 +20,41 @@
 #include <functional>
 #include <map>
 #include <list>
-#include <unordered_set>
 #include "iremote_object.h"
 #include "ipc_skeleton.h"
 #include "nocopyable.h"
 
 namespace OHOS {
 namespace MediaAVCodec {
-using DumperEntry = std::function<int32_t(int32_t)>;
-struct Dumper {
-    pid_t pid_;
-    pid_t uid_;
-    DumperEntry entry_;
-    sptr<IRemoteObject> remoteObject_;
-};
-
 class AVCodecServerManager : public NoCopyable {
 public:
     static AVCodecServerManager& GetInstance();
     ~AVCodecServerManager();
 
-    enum StubType { CODECLIST, CODEC, MUXER, DEMUXER, SOURCE };
-    sptr<IRemoteObject> CreateStubObject(StubType type);
+    enum StubType { CODECLIST, CODEC };
+    int32_t CreateStubObject(StubType type, sptr<IRemoteObject> &object);
     void DestroyStubObject(StubType type, sptr<IRemoteObject> object);
     void DestroyStubObjectForPid(pid_t pid);
     int32_t Dump(int32_t fd, const std::vector<std::u16string>& args);
-    void DestroyDumper(StubType type, sptr<IRemoteObject> object);
-    void DestroyDumperForPid(pid_t pid);
+    void NotifyProcessStatus(const int32_t status);
+    void SetCritical(const bool isKeyService);
 
 private:
     AVCodecServerManager();
-    void PrintDumpMenu(int32_t fd);
-    void DumpServer(int32_t fd, StubType stubType, std::unordered_set<std::u16string> &argSets);
-
-#ifdef SUPPORT_DEMUXER
-    sptr<IRemoteObject> CreateDemuxerStubObject();
-#endif
 
 #ifdef SUPPORT_CODEC
-    sptr<IRemoteObject> CreateCodecStubObject();
+    int32_t CreateCodecStubObject(sptr<IRemoteObject> &object);
 #endif
 #ifdef SUPPORT_CODECLIST
-    sptr<IRemoteObject> CreateCodecListStubObject();
+    int32_t CreateCodecListStubObject(sptr<IRemoteObject> &object);
 #endif
 
-#ifdef SUPPORT_SOURCE
-    sptr<IRemoteObject> CreateSourceStubObject();
-#endif
     void EraseObject(std::map<sptr<IRemoteObject>, pid_t>::iterator& iter,
                      std::map<sptr<IRemoteObject>, pid_t>& stubMap,
                      pid_t pid,
                      const std::string& stubName);
     void EraseObject(std::map<sptr<IRemoteObject>, pid_t>& stubMap, pid_t pid);
+    void Init();
 
     class AsyncExecutor {
     public:
@@ -86,14 +69,19 @@ private:
         std::mutex listMutex_;
     };
 
-    std::map<sptr<IRemoteObject>, pid_t> demuxerStubMap_;
     std::map<sptr<IRemoteObject>, pid_t> codecStubMap_;
     std::map<sptr<IRemoteObject>, pid_t> codecListStubMap_;
-    std::map<sptr<IRemoteObject>, pid_t> sourceStubMap_;
-    std::map<StubType, std::vector<Dumper>> dumperTbl_;
     AsyncExecutor executor_;
-
+    pid_t pid_ = 0;
     std::mutex mutex_;
+    using NotifyProcessStatusFunc = int32_t(*)(int32_t pid, int32_t type, int32_t status, int32_t saId);
+    using SetCriticalFunc = int32_t(*)(int32_t pid, bool critical, int32_t saId);
+    static constexpr char LIB_PATH[] = "libmemmgrclient.z.so";
+    static constexpr char NOTIFY_STATUS_FUNC_NAME[] = "notify_process_status";
+    static constexpr char SET_CRITICAL_FUNC_NAME[] = "set_critical";
+    std::shared_ptr<void> libMemMgrClientHandle_ = nullptr;
+    NotifyProcessStatusFunc notifyProcessStatusFunc_ = nullptr;
+    SetCriticalFunc setCriticalFunc_ = nullptr;
 };
 } // namespace MediaAVCodec
 } // namespace OHOS

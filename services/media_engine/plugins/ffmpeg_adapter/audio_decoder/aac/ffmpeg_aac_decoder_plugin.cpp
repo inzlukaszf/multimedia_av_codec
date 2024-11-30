@@ -25,7 +25,7 @@ using namespace OHOS::Media;
 using namespace OHOS::Media::Plugins;
 using namespace Ffmpeg;
 
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AvCodec-FFmpegAACDecoderPlugin"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_AUDIO, "AvCodec-FFmpegAACDecoderPlugin"};
 constexpr int MIN_CHANNELS = 1;
 constexpr int MAX_CHANNELS = 8;
 constexpr int32_t INPUT_BUFFER_SIZE_DEFAULT = 8192;
@@ -86,6 +86,9 @@ Status FFmpegAACDecoderPlugin::SetParameter(const std::shared_ptr<Meta> &paramet
     if (ret != Status::OK) {
         AVCODEC_LOGE("AllocateContext failed, ret=%{public}d", ret);
         return ret;
+    }
+    if (!CheckSampleFormat(parameter)) {
+        return Status::ERROR_INVALID_PARAMETER;
     }
     ret = basePlugin->InitContext(parameter);
     if (ret != Status::OK) {
@@ -159,7 +162,7 @@ bool FFmpegAACDecoderPlugin::CheckSampleFormat(const std::shared_ptr<Meta> &form
 
 bool FFmpegAACDecoderPlugin::CheckFormat(const std::shared_ptr<Meta> &format)
 {
-    if (!CheckAdts(format) || !CheckChannelCount(format) || !CheckSampleFormat(format) || !CheckSampleRate(format)) {
+    if (!CheckAdts(format) || !CheckChannelCount(format) || !CheckSampleRate(format)) {
         return false;
     }
     return true;

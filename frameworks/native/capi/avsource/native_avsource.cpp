@@ -21,12 +21,50 @@
 #include "native_avformat.h"
 #include "native_avmagic.h"
 #include "native_object.h"
+#include "avbuffer.h"
 
 namespace {
-    constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "NativeAVSource"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_DEMUXER, "NativeAVSource"};
 }
 
 using namespace OHOS::MediaAVCodec;
+
+class NativeAVDataSource : public OHOS::Media::IMediaDataSource {
+public:
+    explicit NativeAVDataSource(OH_AVDataSource *dataSource)
+        : dataSource_(dataSource)
+    {
+    }
+    virtual ~NativeAVDataSource() = default;
+
+    int32_t ReadAt(const std::shared_ptr<AVSharedMemory> &mem, uint32_t length, int64_t pos = -1)
+    {
+        std::shared_ptr<AVBuffer> buffer = AVBuffer::CreateAVBuffer(
+            mem->GetBase(), mem->GetSize(), mem->GetSize()
+        );
+        OH_AVBuffer avBuffer(buffer);
+        return dataSource_->readAt(&avBuffer, length, pos);
+    }
+
+    int32_t GetSize(int64_t &size)
+    {
+        size = dataSource_->size;
+        return 0;
+    }
+
+    int32_t ReadAt(int64_t pos, uint32_t length, const std::shared_ptr<AVSharedMemory> &mem)
+    {
+        return ReadAt(mem, length, pos);
+    }
+
+    int32_t ReadAt(uint32_t length, const std::shared_ptr<AVSharedMemory> &mem)
+    {
+        return ReadAt(mem, length);
+    }
+
+private:
+    OH_AVDataSource* dataSource_;
+};
 
 struct OH_AVSource *OH_AVSource_CreateWithURI(char *uri)
 {
@@ -43,8 +81,8 @@ struct OH_AVSource *OH_AVSource_CreateWithURI(char *uri)
 
 struct OH_AVSource *OH_AVSource_CreateWithFD(int32_t fd, int64_t offset, int64_t size)
 {
-    CHECK_AND_RETURN_RET_LOG(fd > STDERR_FILENO, nullptr,
-        "Create source with fd failed because input fd is illegal, fd must be greater than 2!");
+    CHECK_AND_RETURN_RET_LOG(fd >= 0, nullptr,
+        "Create source with fd failed because input fd is negative");
     CHECK_AND_RETURN_RET_LOG(offset >= 0, nullptr,
         "Create source with fd failed because input offset is negative");
     CHECK_AND_RETURN_RET_LOG(size > 0, nullptr,
@@ -55,6 +93,26 @@ struct OH_AVSource *OH_AVSource_CreateWithFD(int32_t fd, int64_t offset, int64_t
 
     struct AVSourceObject *object = new(std::nothrow) AVSourceObject(source);
     CHECK_AND_RETURN_RET_LOG(object != nullptr, nullptr, "New AVSourceObject failed when create source with fd!");
+
+    return object;
+}
+
+struct OH_AVSource *OH_AVSource_CreateWithDataSource(OH_AVDataSource *dataSource)
+{
+    CHECK_AND_RETURN_RET_LOG(dataSource != nullptr, nullptr,
+        "Create source with dataSource failed because input dataSource is nullptr");
+    CHECK_AND_RETURN_RET_LOG(dataSource->size != 0, nullptr,
+        "Create source with dataSource failed because local file input size must be greater than zero");
+    std::shared_ptr<NativeAVDataSource> nativeAVDataSource = std::make_shared<NativeAVDataSource>(dataSource);
+    CHECK_AND_RETURN_RET_LOG(nativeAVDataSource != nullptr, nullptr,
+        "New nativeAVDataSource with dataSource failed!");
+
+    std::shared_ptr<AVSource> source = AVSourceFactory::CreateWithDataSource(nativeAVDataSource);
+    CHECK_AND_RETURN_RET_LOG(source != nullptr, nullptr, "New source with dataSource failed by AVSourceFactory!");
+
+    struct AVSourceObject *object = new(std::nothrow) AVSourceObject(source);
+    CHECK_AND_RETURN_RET_LOG(object != nullptr, nullptr,
+        "New AVSourceObject failed when create source with dataSource!");
 
     return object;
 }
@@ -83,6 +141,7 @@ OH_AVFormat *OH_AVSource_GetSourceFormat(OH_AVSource *source)
     CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, nullptr, "source_ GetSourceFormat failed!");
 
     OH_AVFormat *avFormat = OH_AVFormat_Create();
+    CHECK_AND_RETURN_RET_LOG(avFormat != nullptr, nullptr, "Get source format failed, format is nullptr!");
     avFormat->format_ = format;
     
     return avFormat;
@@ -102,6 +161,7 @@ OH_AVFormat *OH_AVSource_GetTrackFormat(OH_AVSource *source, uint32_t trackIndex
     CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, nullptr, "Source GetTrackFormat failed!");
 
     OH_AVFormat *avFormat = OH_AVFormat_Create();
+    CHECK_AND_RETURN_RET_LOG(avFormat != nullptr, nullptr, "Get format failed, format is nullptr!");
     avFormat->format_ = format;
     
     return avFormat;

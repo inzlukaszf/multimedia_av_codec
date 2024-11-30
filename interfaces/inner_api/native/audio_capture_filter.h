@@ -33,14 +33,13 @@ public:
     ~AudioCaptureFilter() override;
     void Init(const std::shared_ptr<EventReceiver> &receiver,
         const std::shared_ptr<FilterCallback> &callback) override;
-    void SetLogTag(std::string logTag);
-    Status Prepare() override;
-    Status Start() override;
-    Status Pause() override;
-    Status Resume() override;
-    Status Stop() override;
-    Status Flush() override;
-    Status Release() override;
+    Status DoPrepare() override;
+    Status DoStart() override;
+    Status DoPause() override;
+    Status DoResume() override;
+    Status DoStop() override;
+    Status DoFlush() override;
+    Status DoRelease() override;
     void SetParameter(const std::shared_ptr<Meta> &meta) override;
     void GetParameter(std::shared_ptr<Meta> &meta) override;
     Status LinkNext(const std::shared_ptr<Filter> &nextFilter, StreamType outType) override;
@@ -61,23 +60,25 @@ public:
         const std::shared_ptr<AudioStandard::AudioCapturerInfoChangeCallback> &callback);
     Status GetCurrentCapturerChangeInfo(AudioStandard::AudioCapturerChangeInfo &changeInfo);
     int32_t GetMaxAmplitude();
+    void SetCallingInfo(int32_t appUid, int32_t appPid, const std::string &bundleName, uint64_t instanceId);
 private:
     void ReadLoop();
     Status PrepareAudioCapture();
     std::shared_ptr<Task> taskPtr_{nullptr};
     std::shared_ptr<AudioCaptureModule::AudioCaptureModule> audioCaptureModule_{nullptr};
     sptr<AVBufferQueueProducer> outputBufferQueue_;
-    AudioStandard::SourceType sourceType_;
+    AudioStandard::SourceType sourceType_ = AudioStandard::SourceType::SOURCE_TYPE_INVALID;
     std::shared_ptr<Meta> audioCaptureConfig_;
 
     std::shared_ptr<EventReceiver> receiver_;
     std::shared_ptr<FilterCallback> callback_;
 
     std::shared_ptr<Filter> nextFilter_;
-    std::atomic<FilterState> state_{FilterState::CREATED};
     std::atomic<bool> eos_{false};
-
-    std::string logTag_ = "";
+    std::string bundleName_;
+    uint64_t instanceId_{0};
+    int32_t appUid_ {0};
+    int32_t appPid_ {0};
 };
 } // namespace Pipeline
 } // namespace Media

@@ -20,7 +20,7 @@
 #include "utils.h"
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AvCodec-AudioCodecWorker"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_AUDIO, "AvCodec-AudioCodecWorker"};
 constexpr uint8_t LOGD_FREQUENCY = 5;
 } // namespace
 
@@ -382,7 +382,7 @@ void AudioCodecWorker::Dispose()
 bool AudioCodecWorker::Begin()
 {
     AVCODEC_LOGD("Worker begin enter");
-    for (uint32_t i = 0; i < bufferCount; i++) {
+    for (uint32_t i = 0; i < static_cast<uint32_t>(bufferCount); i++) {
         inBufAvaIndexQue_.push(i);
     }
     isRunning = true;

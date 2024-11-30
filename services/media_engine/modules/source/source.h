@@ -25,9 +25,9 @@
 #include "plugin/plugin_buffer.h"
 #include "plugin/plugin_info.h"
 #include "plugin/plugin_base.h"
-#include "plugin/plugin_manager.h"
 #include "plugin/plugin_event.h"
 #include "plugin/source_plugin.h"
+#include "meta/media_types.h"
 #include "media_demuxer.h"
 
 namespace OHOS {
@@ -40,6 +40,16 @@ public:
     void OnEvent(const Plugins::PluginEvent &event) override
     {
         callbackWrap_->OnEvent(event);
+    }
+
+    void SetSelectBitRateFlag(bool flag) override
+    {
+        callbackWrap_->SetSelectBitRateFlag(flag);
+    }
+
+    bool CanAutoSelectBitRate() override
+    {
+        return callbackWrap_->CanAutoSelectBitRate();
     }
 
     void SetCallbackWrap(Callback* callbackWrap)
@@ -56,8 +66,8 @@ public:
     explicit Source();
     ~Source() override;
 
-    Status PullData(uint64_t offset, int64_t seekTime, size_t size, std::shared_ptr<Plugins::Buffer>& data);
     virtual Status SetSource(const std::shared_ptr<MediaSource>& source);
+    void SetBundleName(const std::string& bundleName);
     Status Prepare();
     Status Start();
     Status Stop();
@@ -69,35 +79,38 @@ public:
     Status GetSize(uint64_t &fileSize);
 
     void OnEvent(const Plugins::PluginEvent &event) override;
+    void SetSelectBitRateFlag(bool flag) override;
+    bool CanAutoSelectBitRate() override;
+
     bool IsSeekToTimeSupported();
-    Status SetPushData(const std::shared_ptr<PushDataImpl>& data);
     int64_t GetDuration();
-    Status SeekToTime(int64_t seekTime);
+    Status SeekToTime(int64_t seekTime, SeekMode mode);
+    Status SeekTo(uint64_t offset);
     Status GetBitRates(std::vector<uint32_t>& bitRates);
     Status SelectBitRate(uint32_t bitRate);
+    Status SetCurrentBitRate(int32_t bitRate, int32_t streamID);
     void SetCallback(Callback* callback);
     bool IsNeedPreDownload();
+    void SetDemuxerState(int32_t streamId);
+    Status GetStreamInfo(std::vector<StreamInfo>& streams);
+    Status Read(int32_t streamID, std::shared_ptr<Buffer>& buffer, uint64_t offset, size_t expectedLen);
+    void SetInterruptState(bool isInterruptNeeded);
+    Status GetDownloadInfo(DownloadInfo& downloadInfo);
+    Status GetPlaybackInfo(PlaybackInfo& playbackInfo);
+    Status SelectStream(int32_t streamID);
 private:
-    void ActivateMode();
     Status InitPlugin(const std::shared_ptr<MediaSource>& source);
     static std::string GetUriSuffix(const std::string& uri);
-    void ReadLoop();
     bool GetProtocolByUri();
     bool ParseProtocol(const std::shared_ptr<MediaSource>& source);
-    Status CreatePlugin(const std::shared_ptr<Plugins::PluginInfo>& info, const std::string& name,
-        Plugins::PluginManager& manager);
     Status FindPlugin(const std::shared_ptr<MediaSource>& source);
 
     void ClearData();
 
-    std::shared_ptr<Task> taskPtr_;
     std::string protocol_;
-    bool isHls_{false};
+    bool seekToTimeFlag_{false};
     std::string uri_;
     Plugins::Seekable seekable_;
-    uint64_t position_;
-    int64_t mediaOffset_ {0}; // offset used in push mode
-    int32_t retryTimes_ {0};
 
     std::shared_ptr<Plugins::SourcePlugin> plugin_;
 
@@ -105,8 +118,8 @@ private:
     bool isPluginReady_ {false};
     bool isAboveWaterline_ {false};
 
-    std::shared_ptr<PushDataImpl> pushData_;
     std::shared_ptr<CallbackImpl> mediaDemuxerCallback_;
+    std::atomic<bool> isInterruptNeeded_{false};
 };
 } // namespace Media
 } // namespace OHOS

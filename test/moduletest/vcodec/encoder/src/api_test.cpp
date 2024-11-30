@@ -20,7 +20,7 @@
 #include "native_avcodec_base.h"
 #include "native_avformat.h"
 #include "native_avcodec_videoencoder.h"
-#include "videoenc_ndk_sample.h"
+#include "videoenc_sample.h"
 #include "native_avcapability.h"
 using namespace std;
 using namespace OHOS;
@@ -615,17 +615,14 @@ HWTEST_F(HwEncApiNdkTest, VIDEO_ENCODE_API_0600, TestSize.Level2)
 {
     venc_ = OH_VideoEncoder_CreateByName(g_codecName);
     ASSERT_NE(NULL, venc_);
-
     format = OH_AVFormat_Create();
     ASSERT_NE(NULL, format);
-
     string widthStr = "width";
     string heightStr = "height";
     string frameRateStr = "frame_rate";
     (void)OH_AVFormat_SetIntValue(format, widthStr.c_str(), DEFAULT_WIDTH);
     (void)OH_AVFormat_SetIntValue(format, heightStr.c_str(), DEFAULT_HEIGHT);
     (void)OH_AVFormat_SetIntValue(format, OH_MD_KEY_PIXEL_FORMAT, AV_PIXEL_FORMAT_NV12);
-
     ASSERT_EQ(AV_ERR_OK, OH_VideoEncoder_Configure(venc_, format));
     OH_AVCodecAsyncCallback cb_;
     cb_.onError = onError;
@@ -789,5 +786,41 @@ HWTEST_F(HwEncApiNdkTest, VIDEO_ENCODE_API_1300, TestSize.Level2)
     OH_AVFormat_Destroy(format);
     format = OH_VideoEncoder_GetInputDescription(venc_);
     ASSERT_NE(NULL, format);
+}
+
+/**
+ * @tc.number    : VIDEO_ENCODE_API_1400
+ * @tc.name      : set quality with illegal value
+ * @tc.desc      : function test
+ */
+HWTEST_F(HwEncApiNdkTest, VIDEO_ENCODE_API_1400, TestSize.Level2)
+{
+    venc_ = OH_VideoEncoder_CreateByMime(OH_AVCODEC_MIMETYPE_VIDEO_AVC);
+    ASSERT_NE(nullptr, venc_);
+    format = OH_AVFormat_Create();
+    ASSERT_EQ(true, OH_AVFormat_SetIntValue(format, OH_MD_KEY_VIDEO_ENCODE_BITRATE_MODE, CQ));
+    ASSERT_EQ(true, OH_AVFormat_SetIntValue(format, OH_MD_KEY_QUALITY, 101));
+    (void)OH_AVFormat_SetIntValue(format, OH_MD_KEY_WIDTH, DEFAULT_WIDTH);
+    (void)OH_AVFormat_SetIntValue(format, OH_MD_KEY_HEIGHT, DEFAULT_HEIGHT);
+    (void)OH_AVFormat_SetIntValue(format, OH_MD_KEY_PIXEL_FORMAT, AV_PIXEL_FORMAT_YUVI420);
+    ASSERT_EQ(AV_ERR_INVALID_VAL, OH_VideoEncoder_Configure(venc_, format));
+}
+
+/**
+ * @tc.number    : VIDEO_ENCODE_API_1410
+ * @tc.name      : set quality with illegal value
+ * @tc.desc      : function test
+ */
+HWTEST_F(HwEncApiNdkTest, VIDEO_ENCODE_API_1410, TestSize.Level2)
+{
+    venc_ = OH_VideoEncoder_CreateByMime(OH_AVCODEC_MIMETYPE_VIDEO_AVC);
+    ASSERT_NE(nullptr, venc_);
+    format = OH_AVFormat_Create();
+    ASSERT_EQ(true, OH_AVFormat_SetIntValue(format, OH_MD_KEY_VIDEO_ENCODE_BITRATE_MODE, CQ));
+    ASSERT_EQ(true, OH_AVFormat_SetIntValue(format, OH_MD_KEY_QUALITY, -1));
+    (void)OH_AVFormat_SetIntValue(format, OH_MD_KEY_WIDTH, DEFAULT_WIDTH);
+    (void)OH_AVFormat_SetIntValue(format, OH_MD_KEY_HEIGHT, DEFAULT_HEIGHT);
+    (void)OH_AVFormat_SetIntValue(format, OH_MD_KEY_PIXEL_FORMAT, AV_PIXEL_FORMAT_YUVI420);
+    ASSERT_EQ(AV_ERR_INVALID_VAL, OH_VideoEncoder_Configure(venc_, format));
 }
 } // namespace

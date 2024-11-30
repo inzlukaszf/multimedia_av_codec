@@ -47,7 +47,7 @@ const string CODEC_AMRNB_NAME = std::string(AVCodecCodecName::AUDIO_DECODER_AMRN
 const string CODEC_OPUS_NAME = std::string(AVCodecCodecName::AUDIO_DECODER_OPUS_NAME);
 const string CODEC_G711MU_NAME = std::string(AVCodecCodecName::AUDIO_DECODER_G711MU_NAME);
 const string INPUT_SOURCE_PATH = "/data/test/media/";
-constexpr string_view OPUS_SO_FILE_PATH = "/system/lib64/libav_codec_ext_base.z.so";
+const string OPUS_SO_FILE_PATH = std::string(AV_CODEC_PATH) + "/libav_codec_ext_base.z.so";
 const int MP3_TESTCASES_NUMS = 15;
 const int FLAC_TESTCASES_NUMS = 8;
 const int OGG_TESTCASES_NUMS = 11;
@@ -751,6 +751,7 @@ HWTEST_F(AudioCodeCapiDecoderUnitTest, audioDecoder_Normalcase_06, TestSize.Leve
 
 HWTEST_F(AudioCodeCapiDecoderUnitTest, audioDecoder_Normalcase_07, TestSize.Level1)
 {
+    signal_ = nullptr;
     if (!CheckSoFunc()) {
         return;
     }
@@ -763,7 +764,7 @@ HWTEST_F(AudioCodeCapiDecoderUnitTest, audioDecoder_Normalcase_07, TestSize.Leve
                                 stoi(INPUT_OPUS_FILE_SOURCE_PATH[i][1]));
         OH_AVFormat_SetIntValue(format_, MediaDescriptionKey::MD_KEY_CHANNEL_COUNT.data(),
                                 stoi(INPUT_OPUS_FILE_SOURCE_PATH[i][2]));
-
+        EXPECT_NE(nullptr, signal_);
         EXPECT_EQ(OH_AVErrCode::AV_ERR_OK, OH_AudioDecoder_Configure(audioDec_, format_));
 
         isRunning_.store(true);

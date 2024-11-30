@@ -23,6 +23,7 @@
 #include "plugin/plugin_caps.h"
 #include "plugin/plugin_definition.h"
 #include "plugin/plugin_info.h"
+#include "common/media_core.h"
 
 namespace OHOS {
 namespace Media {
@@ -60,6 +61,18 @@ struct DemuxerPlugin : public PluginBase {
      *  @retval OK: Plugin GetMediaInfo succeeded.
      */
     virtual Status GetMediaInfo(MediaInfo& mediaInfo) = 0;
+
+    /**
+     * @brief Get the user meta of a media file.
+     *
+     * The attributes contain file and stream attributes.
+     * The function is valid only after INITIALIZED state.
+     *
+     * @param mediaInfo Indicates the pointer to the user meta attributes
+     * @return  Execution status return
+     *  @retval OK: Plugin GetUserMeta succeeded.
+     */
+    virtual Status GetUserMeta(std::shared_ptr<Meta> meta) = 0;
 
     /**
      * @brief Select a specified media track.
@@ -102,9 +115,9 @@ struct DemuxerPlugin : public PluginBase {
      * The function is valid only after RUNNING state.
      *
      * @param trackId Identifies the media track. ignore the invalid value is passed.
-     * @return  size
+     * @return Execution Status
      */
-    virtual int32_t GetNextSampleSize(uint32_t trackId) = 0;
+    virtual Status GetNextSampleSize(uint32_t trackId, int32_t& size) = 0;
 
     /**
      * @brief Seeks for a specified position for the demuxer.
@@ -131,11 +144,29 @@ struct DemuxerPlugin : public PluginBase {
 
     virtual Status Flush() = 0;
 
+    virtual void ResetEosStatus() = 0;
+
+    virtual Status ParserRefUpdatePos(int64_t timeStampMs, bool isForward = true) = 0;
+    virtual Status ParserRefInfo() = 0;
+    virtual Status GetFrameLayerInfo(std::shared_ptr<AVBuffer> videoSample, FrameLayerInfo &frameLayerInfo) = 0;
+    virtual Status GetFrameLayerInfo(uint32_t frameId, FrameLayerInfo &frameLayerInfo) = 0;
+    virtual Status GetGopLayerInfo(uint32_t gopId, GopLayerInfo &gopLayerInfo) = 0;
+    virtual Status GetIFramePos(std::vector<uint32_t> &IFramePos) = 0;
+    virtual Status Dts2FrameId(int64_t dts, uint32_t &frameId, bool offset = true) = 0;
+
     virtual Status GetDrmInfo(std::multimap<std::string, std::vector<uint8_t>>& drmInfo)
     {
         (void)drmInfo;
         return Status::OK;
     }
+
+    virtual Status GetIndexByRelativePresentationTimeUs(const uint32_t trackIndex,
+        const uint64_t relativePresentationTimeUs, uint32_t &index) = 0;
+
+    virtual Status GetRelativePresentationTimeUsByIndex(const uint32_t trackIndex,
+        const uint32_t index, uint64_t &relativePresentationTimeUs) = 0;
+
+    virtual void SetCacheLimit(uint32_t limitSize) = 0;
 };
 
 /// Demuxer plugin api major number.

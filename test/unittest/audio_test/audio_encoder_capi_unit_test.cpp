@@ -47,8 +47,8 @@ constexpr uint32_t CHANNEL_COUNT = 2;
 constexpr uint32_t ABNORMAL_CHANNEL_COUNT = 10;
 constexpr uint32_t SAMPLE_RATE = 44100;
 constexpr uint32_t ABNORMAL_SAMPLE_RATE = 9999999;
-constexpr uint32_t BITS_RATE = 261000;
-constexpr int32_t ABNORMAL_BITS_RATE = -1;
+constexpr int64_t BITS_RATE = 261000;
+constexpr int64_t ABNORMAL_BITS_RATE = -1;
 constexpr int32_t BITS_PER_CODED_SAMPLE = AudioSampleFormat::SAMPLE_S16LE;
 constexpr int32_t ABNORMAL_BITS_SAMPLE = AudioSampleFormat::INVALID_WIDTH;
 constexpr uint32_t FRAME_DURATION_US = 33000;
@@ -79,7 +79,7 @@ constexpr string_view FLAC_OUTPUT_FILE_PATH = "/data/test/media/encoderTest.flac
 
 constexpr string_view AAC_INPUT_FILE_PATH = "/data/test/media/aac_2c_44100hz_199k.pcm";
 constexpr string_view AAC_OUTPUT_FILE_PATH = "/data/test/media/aac_2c_44100hz_encode.aac";
-constexpr string_view OPUS_SO_FILE_PATH = "/system/lib64/libav_codec_ext_base.z.so";
+const string OPUS_SO_FILE_PATH = std::string(AV_CODEC_PATH) + "/libav_codec_ext_base.z.so";
 
 constexpr string_view G711MU_INPUT_FILE_PATH = "/data/test/media/g711mu_8kHz_10s.pcm";
 constexpr string_view G711MU_OUTPUT_FILE_PATH = "/data/test/media/g711mu_8kHz_10s_afterEncode.raw";
@@ -962,20 +962,6 @@ HWTEST_F(AudioCodeCapiEncoderUnitTest, audioEncoder_Configure_05, TestSize.Level
     ASSERT_NE(OH_AVErrCode::AV_ERR_OK, OH_AudioEncoder_Configure(audioEnc_, format));
 }
 
-HWTEST_F(AudioCodeCapiEncoderUnitTest, audioEncoder_Configure_06, TestSize.Level1)
-{
-    ProceFunc();
-    OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_CHANNEL_COUNT.data(), CHANNEL_COUNT);
-    OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_SAMPLE_RATE.data(), SAMPLE_RATE);
-    OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_BITRATE.data(), BITS_RATE);    // SetIntValue
-    OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_BITS_PER_CODED_SAMPLE.data(), BITS_PER_CODED_SAMPLE);
-    OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_AUDIO_SAMPLE_FORMAT.data(), SAMPLE_FORMAT);
-    OH_AVFormat_SetLongValue(format, MediaDescriptionKey::MD_KEY_CHANNEL_LAYOUT.data(), CHANNEL_LAYOUT);
-    OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_COMPLIANCE_LEVEL.data(), COMPLIANCE_LEVEL);
-
-    ASSERT_NE(OH_AVErrCode::AV_ERR_OK, OH_AudioEncoder_Configure(audioEnc_, format));
-}
-
 HWTEST_F(AudioCodeCapiEncoderUnitTest, audioEncoder_Configure_07, TestSize.Level1)
 {
     ProceFunc();
@@ -1410,6 +1396,49 @@ HWTEST_F(AudioCodeCapiEncoderUnitTest, g711muCheckSampleRate, TestSize.Level1)
     OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_SAMPLE_RATE.data(), G711MU_SAMPLE_RATE);
     EXPECT_EQ(OH_AVErrCode::AV_ERR_OK, OH_AudioEncoder_Configure(audioEnc_, format)); // normal sample rate
 
+    EXPECT_EQ(OH_AVErrCode::AV_ERR_OK, OH_AudioEncoder_Destroy(audioEnc_));
+}
+
+HWTEST_F(AudioCodeCapiEncoderUnitTest, g711muNormal, TestSize.Level1)
+{
+    inputFilePath_ = G711MU_INPUT_FILE_PATH;
+    outputFilePath_ = G711MU_OUTPUT_FILE_PATH;
+    frameBytes_ = G711MU_DEFAULT_FRAME_BYTES;
+    ProceFunc(CODEC_G711MU_NAME);
+    OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_CHANNEL_COUNT.data(), G711MU_CHANNEL_COUNT);
+    OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_AUDIO_SAMPLE_FORMAT.data(),
+                            AudioSampleFormat::SAMPLE_S16LE);
+    OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_SAMPLE_RATE.data(), G711MU_SAMPLE_RATE);
+    EXPECT_EQ(OH_AVErrCode::AV_ERR_OK, OH_AudioEncoder_Configure(audioEnc_, format));
+    isRunning_.store(true);
+
+    inputLoop_ = make_unique<thread>(&AudioCodeCapiEncoderUnitTest::InputFunc, this);
+    EXPECT_NE(nullptr, inputLoop_);
+    outputLoop_ = make_unique<thread>(&AudioCodeCapiEncoderUnitTest::OutputFunc, this);
+    EXPECT_NE(nullptr, outputLoop_);
+
+    EXPECT_EQ(OH_AVErrCode::AV_ERR_OK, OH_AudioEncoder_Start(audioEnc_));
+    while (isRunning_.load()) {
+        sleep(1); // sleep 1s
+    }
+
+    isRunning_.store(false);
+    if (inputLoop_ != nullptr && inputLoop_->joinable()) {
+        {
+            unique_lock<mutex> lock(signal_->inMutex_);
+            signal_->inCond_.notify_all();
+        }
+        inputLoop_->join();
+    }
+
+    if (outputLoop_ != nullptr && outputLoop_->joinable()) {
+        {
+            unique_lock<mutex> lock(signal_->outMutex_);
+            signal_->outCond_.notify_all();
+        }
+        outputLoop_->join();
+    }
+    EXPECT_EQ(OH_AVErrCode::AV_ERR_OK, OH_AudioEncoder_Flush(audioEnc_));
     EXPECT_EQ(OH_AVErrCode::AV_ERR_OK, OH_AudioEncoder_Destroy(audioEnc_));
 }
 } // namespace MediaAVCodec

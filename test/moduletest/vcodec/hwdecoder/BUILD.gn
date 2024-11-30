@@ -49,6 +49,7 @@ hwdecoder_moduletest_cflags = [
 
 ##################################################################################################################
 ohos_unittest("hwdecoder_native_module_test") {
+  sanitize = av_codec_test_sanitize
   module_out_path = module_output_path
   include_dirs = hwdecoder_moduletest_native_include_dirs
   include_dirs += [ "./" ]
@@ -59,8 +60,8 @@ ohos_unittest("hwdecoder_native_module_test") {
     sources = [
       "./src/InnerAPI/api_test.cpp",
       "./src/InnerAPI/videodec_ndk_inner_sample.cpp",
-
-      #"./src/api_test.cpp",
+      "./src/api_test.cpp",
+      "./src/configure_test.cpp",
       "./src/func_test.cpp",
 
       #"./src/perf_test.cpp",
@@ -68,6 +69,7 @@ ohos_unittest("hwdecoder_native_module_test") {
       "./src/state_test.cpp",
 
       #"./src/compatibility_test.cpp",
+      "./src/videodec_api11_sample.cpp",
       "./src/videodec_ndk_sample.cpp",
     ]
   }
@@ -85,8 +87,8 @@ ohos_unittest("hwdecoder_native_module_test") {
     "graphic_surface:sync_fence",
     "hilog:libhilog",
     "ipc:ipc_core",
-    "media_foundation:capi_packages",
     "media_foundation:media_foundation",
+    "media_foundation:native_media_core",
     "window_manager:libwm",
   ]
   resource_config_file =

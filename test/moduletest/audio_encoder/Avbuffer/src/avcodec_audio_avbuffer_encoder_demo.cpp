@@ -53,7 +53,7 @@ constexpr int32_t CHANNEL_8 = 8;
 } // namespace
 
 
-uint64_t GetChannelLayout(int32_t channel)
+static uint64_t GetChannelLayout(int32_t channel)
 {
     switch (channel) {
         case CHANNEL_1:
@@ -77,7 +77,7 @@ uint64_t GetChannelLayout(int32_t channel)
     }
 }
 
-vector<string> SplitStringFully(const string &str, const string &separator)
+static  vector<string> SplitStringFully(const string &str, const string &separator)
 {
     vector<string> dest;
     string substring;
@@ -99,7 +99,7 @@ vector<string> SplitStringFully(const string &str, const string &separator)
     return dest;
 }
 
-void String_replace(std::string &strBig, const std::string &strsrc, const std::string &strdst)
+static void StringReplace(std::string &strBig, const std::string &strsrc, const std::string &strdst)
 {
     std::string::size_type pos = 0;
     std::string::size_type srclen = strsrc.size();
@@ -111,7 +111,8 @@ void String_replace(std::string &strBig, const std::string &strsrc, const std::s
     }
 }
 
-void GetParamsByName(string decoderName, string inputFile, int32_t &channelCount, int32_t &sampleRate, long &bitrate)
+static void GetParamsByName(string decoderName, string inputFile, int32_t &channelCount,
+    int32_t &sampleRate, long &bitrate)
 {
     int32_t opusNameSplitNum = 4;
     int32_t splitNum1 = 1;
@@ -128,7 +129,7 @@ void GetParamsByName(string decoderName, string inputFile, int32_t &channelCount
         sampleRate = stoi(dest[splitNum1]);
 
         string bitStr = dest[splitNum2];
-        String_replace(bitStr, "k", "000");
+        StringReplace(bitStr, "k", "000");
         bitrate = atol(bitStr.c_str());
     } else {
         if (dest.size() < opusNameSplitNum) {
@@ -139,7 +140,7 @@ void GetParamsByName(string decoderName, string inputFile, int32_t &channelCount
         sampleRate = stoi(dest[splitNum2]);
 
         string bitStr = dest[splitNum1];
-        String_replace(bitStr, "k", "000");
+        StringReplace(bitStr, "k", "000");
         bitrate = atol(bitStr.c_str());
     }
 }
@@ -673,8 +674,10 @@ OH_AVErrCode AudioBufferAacEncDemo::PushInputDataEOS(OH_AVCodec *codec, uint32_t
     info.flags = AVCODEC_BUFFER_FLAGS_EOS;
 
     if (!signal_->inBufferQueue_.empty()) {
+        unique_lock<mutex> lock(signal_->inMutex_);
         auto buffer = signal_->inBufferQueue_.front();
         OH_AVBuffer_SetBufferAttr(buffer, &info);
+        signal_->inBufferQueue_.pop();
     }
     return OH_AudioCodec_PushInputBuffer(codec, index);
 }
@@ -698,6 +701,7 @@ uint32_t AudioBufferAacEncDemo::GetInputIndex()
         sleep(1);
         sleep_time++;
     }
+    lock_guard<mutex> lock(signal_->inMutex_);
     if (sleep_time >= timeout) {
         return 0;
     } else {

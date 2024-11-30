@@ -20,7 +20,8 @@
 #include "osal/utils/util.h"
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AvCodec-FFmpegBaseEncoder"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_AUDIO, "AvCodec-FFmpegBaseEncoder"};
+constexpr int32_t NS_PER_US = 1000;
 }  // namespace
 
 namespace OHOS {
@@ -41,7 +42,6 @@ FFmpegBaseEncoder::FFmpegBaseEncoder()
 FFmpegBaseEncoder::~FFmpegBaseEncoder()
 {
     CloseCtxLocked();
-    avCodecContext_.reset();
 }
 
 Status FFmpegBaseEncoder::ProcessSendData(const std::shared_ptr<AVBuffer> &inputBuffer)
@@ -51,8 +51,8 @@ Status FFmpegBaseEncoder::ProcessSendData(const std::shared_ptr<AVBuffer> &input
         AVCODEC_LOGE("memory is nullptr");
         return Status::ERROR_INVALID_DATA;
     }
-    if (memory->GetSize() == 0 && !(inputBuffer->flag_ & BUFFER_FLAG_EOS)) {
-        AVCODEC_LOGE("size is 0, but flag is not 1");
+    if (memory->GetSize() <= 0 && !(inputBuffer->flag_ & BUFFER_FLAG_EOS)) {
+        AVCODEC_LOGE("size is %{public}d, but flag is not 1 ", memory->GetSize());
         return Status::ERROR_INVALID_DATA;
     }
     Status ret;
@@ -96,10 +96,6 @@ Status FFmpegBaseEncoder::PcmFillFrame(const std::shared_ptr<AVBuffer> &inputBuf
 
 Status FFmpegBaseEncoder::SendBuffer(const std::shared_ptr<AVBuffer> &inputBuffer)
 {
-    if (!inputBuffer) {
-        AVCODEC_LOGD("inputBuffer is nullptr");
-        return Status::ERROR_NULL_POINTER;
-    }
     int ret = av_frame_make_writable(cachedFrame_.get());
     if (ret != 0) {
         AVCODEC_LOGD("Frame make writable failed: %{public}s", OSAL::AVStrError(ret).c_str());
@@ -109,14 +105,6 @@ Status FFmpegBaseEncoder::SendBuffer(const std::shared_ptr<AVBuffer> &inputBuffe
     auto memory = inputBuffer->memory_;
     bool isEos = inputBuffer->flag_ & BUFFER_FLAG_EOS;
     if (!isEos) {
-        if (memory->GetSize() < 0) {
-            AVCODEC_LOGE("SendBuffer buffer size is less than 0. size : %{public}d", memory->GetSize());
-            return Status::ERROR_UNKNOWN;
-        }
-        if (memory->GetSize() > memory->GetCapacity()) {
-            AVCODEC_LOGE("GetSize():%{public}d, GetCapacity():%{public}d", memory->GetSize(), memory->GetCapacity());
-            return Status::ERROR_UNKNOWN;
-        }
         auto errCode = PcmFillFrame(inputBuffer);
         if (errCode != Status::OK) {
             AVCODEC_LOGE("SendBuffer PcmFillFrame error");
@@ -145,6 +133,10 @@ Status FFmpegBaseEncoder::ProcessReceiveData(std::shared_ptr<AVBuffer> &outputBu
     if (!outputBuffer) {
         AVCODEC_LOGE("queue out buffer is nullptr.");
         return Status::ERROR_INVALID_PARAMETER;
+    }
+    std::lock_guard<std::mutex> lock(avMutext_);
+    if (avCodecContext_ == nullptr) {
+        return Status::ERROR_WRONG_STATE;
     }
     outBuffer_ = outputBuffer;
     Status ret = SendOutputBuffer(outputBuffer);
@@ -188,8 +180,9 @@ Status FFmpegBaseEncoder::ReceivePacketSucc(std::shared_ptr<AVBuffer> &outputBuf
         AVCODEC_LOGE("write packet data failed, len = %{public}d", len);
         return Status::ERROR_UNKNOWN;
     }
-
-    outputBuffer->duration_ = ConvertTimeFromFFmpeg(avPacket_->duration, avCodecContext_->time_base);
+    // pts us
+    outputBuffer->duration_ = ConvertTimeFromFFmpeg(avPacket_->duration, avCodecContext_->time_base) /
+	                      NS_PER_US;
     outputBuffer->pts_ = ((INT64_MAX - prevPts_) < avPacket_->duration) ?
                     (outputBuffer->duration_ - (INT64_MAX - prevPts_)) :
                     (prevPts_ + outputBuffer->duration_);
@@ -203,10 +196,6 @@ Status FFmpegBaseEncoder::SendOutputBuffer(std::shared_ptr<AVBuffer> &outputBuff
     if (status == Status::OK || status == Status::END_OF_STREAM) {
         {
             std::lock_guard<std::mutex> l(bufferMetaMutex_);
-            if (outBuffer_ == nullptr) {
-                AVCODEC_LOGE("SendOutputBuffer ERROR_NULL_POINTER");
-                return Status::ERROR_NULL_POINTER;
-            }
             outBuffer_->meta_ = bufferMeta_;
         }
         dataCallback_->OnOutputBufferDone(outBuffer_);
@@ -218,10 +207,11 @@ Status FFmpegBaseEncoder::SendOutputBuffer(std::shared_ptr<AVBuffer> &outputBuff
 
 Status FFmpegBaseEncoder::Stop()
 {
+    std::lock_guard<std::mutex> lock(avMutext_);
     auto ret = CloseCtxLocked();
-    avCodecContext_.reset();
     if (outBuffer_) {
         outBuffer_.reset();
+        outBuffer_ = nullptr;
     }
     return ret;
 }
@@ -230,7 +220,6 @@ Status FFmpegBaseEncoder::Reset()
 {
     std::lock_guard<std::mutex> lock(avMutext_);
     auto ret = CloseCtxLocked();
-    avCodecContext_.reset();
     prevPts_ = 0;
     return ret;
 }
@@ -239,7 +228,6 @@ Status FFmpegBaseEncoder::Release()
 {
     std::lock_guard<std::mutex> lock(avMutext_);
     auto ret = CloseCtxLocked();
-    avCodecContext_.reset();
     return ret;
 }
 
@@ -258,7 +246,9 @@ Status FFmpegBaseEncoder::AllocateContext(const std::string &name)
     {
         std::lock_guard<std::mutex> lock(avMutext_);
         avCodec_ = std::shared_ptr<AVCodec>(const_cast<AVCodec *>(avcodec_find_encoder_by_name(name.c_str())),
-                                            [](AVCodec *ptr) {});
+            [](AVCodec *p) {
+                AVCODEC_LOGI("free avCodec_");
+            });
         cachedFrame_ = std::shared_ptr<AVFrame>(av_frame_alloc(), [](AVFrame *fp) { av_frame_free(&fp); });
         avPacket_ = std::shared_ptr<AVPacket>(av_packet_alloc(), [](AVPacket *ptr) { av_packet_free(&ptr); });
     }
@@ -271,8 +261,10 @@ Status FFmpegBaseEncoder::AllocateContext(const std::string &name)
         std::lock_guard<std::mutex> lock(avMutext_);
         context = avcodec_alloc_context3(avCodec_.get());
         avCodecContext_ = std::shared_ptr<AVCodecContext>(context, [](AVCodecContext *ptr) {
-            avcodec_free_context(&ptr);
-            avcodec_close(ptr);
+            if (ptr) {
+                avcodec_free_context(&ptr);
+                ptr = nullptr;
+            }
         });
         av_log_set_level(AV_LOG_ERROR);
     }
@@ -335,8 +327,10 @@ Status FFmpegBaseEncoder::ReAllocateContext()
 
     AVCodecContext *context = avcodec_alloc_context3(avCodec_.get());
     auto tmpContext = std::shared_ptr<AVCodecContext>(context, [](AVCodecContext *ptr) {
-        avcodec_free_context(&ptr);
-        avcodec_close(ptr);
+        if (ptr) {
+            avcodec_free_context(&ptr);
+            ptr = nullptr;
+        }
     });
 
     tmpContext->channels = avCodecContext_->channels;
@@ -387,11 +381,8 @@ void FFmpegBaseEncoder::SetCallback(DataCallback *callback)
 Status FFmpegBaseEncoder::CloseCtxLocked()
 {
     if (avCodecContext_ != nullptr) {
-        auto res = avcodec_close(avCodecContext_.get());
-        if (res != 0) {
-            AVCODEC_LOGE("avcodec close failed: %{public}s", OSAL::AVStrError(res).c_str());
-            return Status::ERROR_UNKNOWN;
-        }
+        avCodecContext_.reset();
+        avCodecContext_ = nullptr;
     }
     return Status::OK;
 }

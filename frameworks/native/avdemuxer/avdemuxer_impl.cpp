@@ -26,7 +26,7 @@
 #include "avcodec_errors.h"
 
 namespace {
-    constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AVDemuxerImpl"};
+    constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_DEMUXER, "AVDemuxerImpl"};
 }
 
 namespace OHOS {
@@ -179,7 +179,7 @@ int32_t AVDemuxerImpl::SeekToTime(int64_t millisecond, SeekMode mode)
 
 int32_t AVDemuxerImpl::SetCallback(const std::shared_ptr<AVDemuxerCallback> &callback)
 {
-    AVCodecTrace trace("AVDemuxer::SetCallback");
+    AVCODEC_SYNC_TRACE;
     AVCODEC_LOGI("AVDemuxer::SetCallback");
     CHECK_AND_RETURN_RET_LOG(demuxerEngine_ != nullptr, AVCS_ERR_INVALID_OPERATION,
         "Demuxer engine does not exist");
@@ -191,12 +191,60 @@ int32_t AVDemuxerImpl::SetCallback(const std::shared_ptr<AVDemuxerCallback> &cal
 
 int32_t AVDemuxerImpl::GetMediaKeySystemInfo(std::multimap<std::string, std::vector<uint8_t>> &infos)
 {
-    AVCodecTrace trace("AVDemuxer::GetMediaKeySystemInfo");
+    AVCODEC_SYNC_TRACE;
     AVCODEC_LOGI("AVDemuxer::GetMediaKeySystemInfo");
     CHECK_AND_RETURN_RET_LOG(demuxerEngine_ != nullptr, AVCS_ERR_INVALID_OPERATION,
         "Demuxer engine does not exist");
     demuxerEngine_->GetMediaKeySystemInfo(infos);
     return AVCS_ERR_OK;
+}
+
+int32_t AVDemuxerImpl::StartReferenceParser(int64_t startTimeMs)
+{
+    AVCODEC_SYNC_TRACE;
+    AVCODEC_LOGI("AVDemuxer::StartReferenceParser");
+    CHECK_AND_RETURN_RET_LOG(demuxerEngine_ != nullptr, AVCS_ERR_INVALID_OPERATION, "Demuxer engine does not exist");
+    return StatusToAVCodecServiceErrCode(demuxerEngine_->StartReferenceParser(startTimeMs));
+}
+
+int32_t AVDemuxerImpl::GetFrameLayerInfo(std::shared_ptr<AVBuffer> videoSample, FrameLayerInfo &frameLayerInfo)
+{
+    AVCODEC_SYNC_TRACE;
+    AVCODEC_LOGI("AVDemuxer::GetFrameLayerInfo");
+    CHECK_AND_RETURN_RET_LOG(demuxerEngine_ != nullptr, AVCS_ERR_INVALID_OPERATION, "Demuxer engine does not exist");
+    return StatusToAVCodecServiceErrCode(demuxerEngine_->GetFrameLayerInfo(videoSample, frameLayerInfo));
+}
+
+int32_t AVDemuxerImpl::GetGopLayerInfo(uint32_t gopId, GopLayerInfo &gopLayerInfo)
+{
+    AVCODEC_SYNC_TRACE;
+    AVCODEC_LOGI("AVDemuxer::GetGopLayerInfo");
+    CHECK_AND_RETURN_RET_LOG(demuxerEngine_ != nullptr, AVCS_ERR_INVALID_OPERATION, "Demuxer engine does not exist");
+    return StatusToAVCodecServiceErrCode(demuxerEngine_->GetGopLayerInfo(gopId, gopLayerInfo));
+}
+
+int32_t AVDemuxerImpl::GetIndexByRelativePresentationTimeUs(const uint32_t trackIndex,
+    const uint64_t relativePresentationTimeUs, uint32_t &index)
+{
+    AVCODEC_SYNC_TRACE;
+    AVCODEC_LOGD("GetIndexByRelativePresentationTimeUs");
+    CHECK_AND_RETURN_RET_LOG(demuxerEngine_ != nullptr, AVCS_ERR_INVALID_OPERATION,
+        "Demuxer engine does not exist");
+    int32_t ret = StatusToAVCodecServiceErrCode(demuxerEngine_->GetIndexByRelativePresentationTimeUs(trackIndex,
+        relativePresentationTimeUs, index));
+    return ret;
+}
+
+int32_t AVDemuxerImpl::GetRelativePresentationTimeUsByIndex(const uint32_t trackIndex,
+    const uint32_t index, uint64_t &relativePresentationTimeUs)
+{
+    AVCODEC_SYNC_TRACE;
+    AVCODEC_LOGD("GetRelativePresentationTimeUsByIndex");
+    CHECK_AND_RETURN_RET_LOG(demuxerEngine_ != nullptr, AVCS_ERR_INVALID_OPERATION,
+        "Demuxer engine does not exist");
+    int32_t ret = StatusToAVCodecServiceErrCode(demuxerEngine_->GetRelativePresentationTimeUsByIndex(trackIndex,
+        index, relativePresentationTimeUs));
+    return ret;
 }
 } // namespace MediaAVCodec
 } // namespace OHOS

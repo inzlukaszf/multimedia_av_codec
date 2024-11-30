@@ -31,8 +31,8 @@ public:
     ~AVCodecServer();
 
     // IStandardAVCodecService override
-    sptr<IRemoteObject> GetSubSystemAbility(IStandardAVCodecService::AVCodecSystemAbility subSystemId,
-        const sptr<IRemoteObject> &listener) override;
+    int32_t GetSubSystemAbility(IStandardAVCodecService::AVCodecSystemAbility subSystemId,
+                                const sptr<IRemoteObject> &listener, sptr<IRemoteObject> &stubObject) override;
 
 protected:
     // SystemAbility override
@@ -42,6 +42,9 @@ protected:
     std::optional<AVCodecServerManager::StubType> SwitchSystemId(
         IStandardAVCodecService::AVCodecSystemAbility subSystemId);
     int32_t Dump(int32_t fd, const std::vector<std::u16string> &args) override;
+
+private:
+    void OnAddSystemAbility(int32_t systemAbilityId, const std::string &deviceId) override;
 };
 } // namespace MediaAVCodec
 } // namespace OHOS

@@ -33,7 +33,7 @@ ohos_fuzztest("DemuxerFuzzTest") {
     "c_utils:utils",
     "hilog:libhilog",
     "ipc:ipc_core",
-    "media_foundation:capi_packages",
+    "media_foundation:native_media_core",
     "window_manager:libwm",
   ]
   deps = [
@@ -42,6 +42,8 @@ ohos_fuzztest("DemuxerFuzzTest") {
     "$MEDIA_ROOT_DIR/interfaces/kits/c:native_media_avsource",
     "$MEDIA_ROOT_DIR/interfaces/kits/c:native_media_codecbase",
   ]
+  resource_config_file =
+      "$MEDIA_ROOT_DIR/test/moduletest/resources/ohos_test.xml"
 }
 
 ###############################################################################

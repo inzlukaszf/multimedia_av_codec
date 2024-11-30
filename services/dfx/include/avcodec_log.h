@@ -20,14 +20,43 @@
 
 namespace OHOS {
 namespace MediaAVCodec {
-#undef LOG_DOMAIN
-#define LOG_DOMAIN 0xD002B30
+#undef  LOG_DOMAIN_FRAMEWORK
+#define LOG_DOMAIN_FRAMEWORK     0xD002B30
+#undef  LOG_DOMAIN_AUDIO
+#define LOG_DOMAIN_AUDIO         0xD002B31
+#undef  LOG_DOMAIN_HCODEC
+#define LOG_DOMAIN_HCODEC        0xD002B32
+#undef  LOG_DOMAIN_TEST
+#define LOG_DOMAIN_TEST          0xD002B36
+#undef  LOG_DOMAIN_DEMUXER
+#define LOG_DOMAIN_DEMUXER       0xD002B3A
+#undef  LOG_DOMAIN_MUXER
+#define LOG_DOMAIN_MUXER         0xD002B3B
 
+#ifndef AVCODEC_LOG_USE_NO_DICT_LOG
 #define AVCODEC_LOG(level, fmt, args...)                                    \
     do {                                                                    \
         (void)HILOG_IMPL(LABEL.type, level, LABEL.domain, LABEL.tag, "{%{public}s():%{public}d} " \
             fmt, __FUNCTION__, __LINE__, ##args);                           \
     } while (0)
+
+#define AVCODEC_LOGF(fmt, ...) AVCODEC_LOG(LOG_FATAL, fmt, ##__VA_ARGS__)
+#define AVCODEC_LOGE(fmt, ...) AVCODEC_LOG(LOG_ERROR, fmt, ##__VA_ARGS__)
+#define AVCODEC_LOGW(fmt, ...) AVCODEC_LOG(LOG_WARN,  fmt, ##__VA_ARGS__)
+#define AVCODEC_LOGI(fmt, ...) AVCODEC_LOG(LOG_INFO,  fmt, ##__VA_ARGS__)
+#define AVCODEC_LOGD(fmt, ...) AVCODEC_LOG(LOG_DEBUG, fmt, ##__VA_ARGS__)
+#else
+#define AVCODEC_LOG(func, fmt, args...)                                     \
+    do {                                                                    \
+        (void)func(LABEL, "{%{public}s():%{public}d} " fmt, __FUNCTION__, __LINE__, ##args);   \
+    } while (0)
+
+#define AVCODEC_LOGF(fmt, ...) AVCODEC_LOG(::OHOS::HiviewDFX::HiLog::Fatal, fmt, ##__VA_ARGS__)
+#define AVCODEC_LOGE(fmt, ...) AVCODEC_LOG(::OHOS::HiviewDFX::HiLog::Error, fmt, ##__VA_ARGS__)
+#define AVCODEC_LOGW(fmt, ...) AVCODEC_LOG(::OHOS::HiviewDFX::HiLog::Warn,  fmt, ##__VA_ARGS__)
+#define AVCODEC_LOGI(fmt, ...) AVCODEC_LOG(::OHOS::HiviewDFX::HiLog::Info,  fmt, ##__VA_ARGS__)
+#define AVCODEC_LOGD(fmt, ...) AVCODEC_LOG(::OHOS::HiviewDFX::HiLog::Debug, fmt, ##__VA_ARGS__)
+#endif
 
 #define AVCODEC_LOG_LIMIT(logger, frequency, fmt, ...)                      \
     do {                                                                    \
@@ -38,12 +67,6 @@ namespace MediaAVCodec {
         logger("[R: %{public}u] " fmt, currentTimes, ##__VA_ARGS__);        \
     } while (0)
 
-#define AVCODEC_LOGF(fmt, ...) AVCODEC_LOG(LOG_FATAL, fmt, ##__VA_ARGS__)
-#define AVCODEC_LOGE(fmt, ...) AVCODEC_LOG(LOG_ERROR, fmt, ##__VA_ARGS__)
-#define AVCODEC_LOGW(fmt, ...) AVCODEC_LOG(LOG_WARN,  fmt, ##__VA_ARGS__)
-#define AVCODEC_LOGI(fmt, ...) AVCODEC_LOG(LOG_INFO,  fmt, ##__VA_ARGS__)
-#define AVCODEC_LOGD(fmt, ...) AVCODEC_LOG(LOG_DEBUG, fmt, ##__VA_ARGS__)
-
 #define AVCODEC_LOGE_LIMIT(frequency, fmt, ...) AVCODEC_LOG_LIMIT(AVCODEC_LOGE, frequency, fmt, ##__VA_ARGS__)
 #define AVCODEC_LOGW_LIMIT(frequency, fmt, ...) AVCODEC_LOG_LIMIT(AVCODEC_LOGW, frequency, fmt, ##__VA_ARGS__)
 #define AVCODEC_LOGI_LIMIT(frequency, fmt, ...) AVCODEC_LOG_LIMIT(AVCODEC_LOGI, frequency, fmt, ##__VA_ARGS__)
@@ -53,6 +76,14 @@ namespace MediaAVCodec {
     do {                                                                    \
         if (!(cond)) {                                                      \
             AVCODEC_LOGE(fmt, ##__VA_ARGS__);                               \
+            return ret;                                                     \
+        }                                                                   \
+    } while (0)
+
+#define CHECK_AND_RETURN_RET_LOGW(cond, ret, fmt, ...)                      \
+    do {                                                                    \
+        if (!(cond)) {                                                      \
+            AVCODEC_LOGW(fmt, ##__VA_ARGS__);                               \
             return ret;                                                     \
         }                                                                   \
     } while (0)
@@ -83,6 +114,13 @@ namespace MediaAVCodec {
     do {                                                                    \
         if ((cond)) {                                                       \
             AVCODEC_LOGD(fmt, ##__VA_ARGS__);                               \
+        }                                                                   \
+    } while (0)
+
+#define EXPECT_AND_LOGE(cond, fmt, ...)                                     \
+    do {                                                                    \
+        if ((cond)) {                                                       \
+            AVCODEC_LOGE(fmt, ##__VA_ARGS__);                               \
         }                                                                   \
     } while (0)
 

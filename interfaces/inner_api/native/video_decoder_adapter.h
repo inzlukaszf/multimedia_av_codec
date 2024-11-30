@@ -34,25 +34,26 @@ public:
     VideoDecoderAdapter();
     virtual ~VideoDecoderAdapter();
 
-    int32_t Init(MediaAVCodec::AVCodecType type, bool isMimeType, const std::string &name);
-    int32_t Configure(const Format &format);
+    Status Init(MediaAVCodec::AVCodecType type, bool isMimeType, const std::string &name);
+    Status Configure(const Format &format);
     int32_t SetParameter(const Format &format);
-    int32_t Start();
-    int32_t Pause();
-    int32_t Flush();
-    int32_t Resume();
-    int32_t Stop();
-    int32_t Reset();
-    int32_t Release();
+    Status Start();
+    Status Flush();
+    Status Stop();
+    Status Reset();
+    Status Release();
     int32_t SetCallback(const std::shared_ptr<MediaAVCodec::MediaCodecCallback> &callback);
 
-    sptr<OHOS::Media::AVBufferQueueProducer> GetInputBufferQueue();
+    void PrepareInputBufferQueue();
+    sptr<AVBufferQueueProducer> GetBufferQueueProducer();
+    sptr<AVBufferQueueConsumer> GetBufferQueueConsumer();
+
     void OnInputBufferAvailable(uint32_t index, std::shared_ptr<AVBuffer> buffer);
     void OnError(MediaAVCodec::AVCodecErrorType errorType, int32_t errorCode);
     void OnOutputFormatChanged(const MediaAVCodec::Format &format);
     void OnOutputBufferAvailable(uint32_t index, std::shared_ptr<AVBuffer> buffer);
-    int32_t ReleaseOutputBuffer(uint32_t index, std::shared_ptr<Pipeline::VideoSink> videoSink,
-        std::shared_ptr<AVBuffer> &outputBuffer, bool doSync);
+    int32_t ReleaseOutputBuffer(uint32_t index, bool render);
+    int32_t RenderOutputBufferAtTime(uint32_t index, int64_t renderTimestampNs);
     void AquireAvailableInputBuffer();
     int32_t SetOutputSurface(sptr<Surface> videoSurface);
     int32_t GetOutputFormat(Format &format);
@@ -60,9 +61,14 @@ public:
 
     int32_t SetDecryptConfig(const sptr<DrmStandard::IMediaKeySessionService> &keySession,
         const bool svpFlag);
+    void OnDumpInfo(int32_t fd);
 
+    void SetCallingInfo(int32_t appUid, int32_t appPid, std::string bundleName, uint64_t instanceId);
+
+    int64_t GetCurrentMillisecond();
+    Status GetLagInfo(int32_t& lagTimes, int32_t& maxLagDuration, int32_t& avgLagDuration);
+    void ResetRenderTime();
 private:
-    void RenderLoop();
     std::shared_ptr<Media::AVBufferQueue> inputBufferQueue_;
     sptr<Media::AVBufferQueueProducer> inputBufferQueueProducer_;
     sptr<Media::AVBufferQueueConsumer> inputBufferQueueConsumer_;
@@ -70,26 +76,21 @@ private:
     std::shared_ptr<MediaAVCodec::AVCodecVideoDecoder> mediaCodec_;
     std::shared_ptr<MediaAVCodec::MediaCodecCallback> callback_;
     std::shared_ptr<AVBuffer> buffer_;
+    std::string mediaCodecName_;
 
-    std::unique_ptr<std::thread> readThread_ = nullptr;
     std::shared_ptr<Pipeline::EventReceiver> eventReceiver_ {nullptr};
 
-    std::condition_variable condBufferAvailable_;
-    std::list<std::function<void()>> indexs_;
     std::mutex mutex_;
-    std::atomic<bool> isThreadExit_ = true;
-    std::atomic<bool> isPaused_ = false;
     std::vector<std::shared_ptr<AVBuffer>> bufferVector_;
-};
-
-class AVBufferAvailableListener : public OHOS::Media::IConsumerListener {
-public:
-    AVBufferAvailableListener(std::shared_ptr<VideoDecoderAdapter> videoDecoder);
-    virtual ~AVBufferAvailableListener();
-
-    void OnBufferAvailable();
-private:
-    std::weak_ptr<VideoDecoderAdapter> videoDecoder_;
+    int32_t lagTimes_ = 0;
+    int64_t currentTime_ = 0;
+    int64_t maxLagDuration_ = 0;
+    int64_t totalLagDuration_ = 0;
+    bool isConfigured_ {false};
+    uint64_t instanceId_ = 0;
+    int32_t appUid_ = -1;
+    int32_t appPid_ = -1;
+    std::string bundleName_;
 };
 
 class VideoDecoderCallback : public OHOS::MediaAVCodec::MediaCodecCallback {

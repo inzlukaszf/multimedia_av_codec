@@ -38,6 +38,7 @@ enum AVCodecErrorType : int32_t {
     AVCODEC_ERROR_INTERNAL,
     /* extend error start. The extension error code agreed upon by the plug-in and
        the application will be transparently transmitted by the service. */
+    AVCODEC_ERROR_DECRYTION_FAILED,
     AVCODEC_ERROR_EXTEND_START = 0X10000,
 };
 
@@ -46,16 +47,37 @@ enum class API_VERSION : int32_t {
     API_VERSION_11 = 11
 };
 
+/**
+ * @brief Flag of AVCodecBuffer.
+ *
+ * @since 3.1
+ */
 enum AVCodecBufferFlag : uint32_t {
     AVCODEC_BUFFER_FLAG_NONE = 0,
-    /* This signals the end of stream */
+    /** This signals the end of stream. */
     AVCODEC_BUFFER_FLAG_EOS = 1 << 0,
-    /* This indicates that the buffer contains the data for a sync frame */
+    /** This indicates that the buffer contains the data for a sync frame. */
     AVCODEC_BUFFER_FLAG_SYNC_FRAME = 1 << 1,
-    /* This indicates that the buffer only contains part of a frame */
+    /** This indicates that the buffer only contains part of a frame. */
     AVCODEC_BUFFER_FLAG_PARTIAL_FRAME = 1 << 2,
-    /* This indicated that the buffer contains codec specific data */
+    /** This indicated that the buffer contains codec specific data. */
     AVCODEC_BUFFER_FLAG_CODEC_DATA = 1 << 3,
+    /** Flag is used to discard packets which are required to maintain valid decoder state but are not required
+     * for output and should be dropped after decoding.
+     * @since 12
+     */
+    AVCODEC_BUFFER_FLAG_DISCARD = 1 << 4,
+    /** Flag is used to indicate packets that contain frames that can be discarded by the decoder,
+     * I.e. Non-reference frames.
+     * @since 12
+     */
+    AVCODEC_BUFFER_FLAG_DISPOSABLE = 1 << 5,
+    /** Indicates that the frame is an extended discardable frame. It is not on the main reference path and
+     * is referenced only by discardable frames or extended discardable frames. When subsequent frames on the branch
+     * reference path are discarded by decoder, the frame can be further discarded.
+     * @since 12
+     */
+    AVCODEC_BUFFER_FLAG_DISPOSABLE_EXT = 1 << 6,
 };
 
 struct AVCodecBufferInfo {
@@ -166,6 +188,34 @@ public:
     virtual void OnOutputBufferAvailable(uint32_t index, std::shared_ptr<AVBuffer> buffer) = 0;
 };
 
+class MediaCodecParameterCallback {
+public:
+    virtual ~MediaCodecParameterCallback() = default;
+    /**
+     * Called when an input parameter becomes available.
+     *
+     * @param index The index of the available input parameter.
+     * @param parameter A {@link Format} object containing the corresponding index input parameter.
+     * @since 5.0
+     */
+    virtual void OnInputParameterAvailable(uint32_t index, std::shared_ptr<Format> parameter) = 0;
+};
+
+class MediaCodecParameterWithAttrCallback {
+public:
+    virtual ~MediaCodecParameterWithAttrCallback() = default;
+    /**
+     * Called when an input parameter with attribute becomes available.
+     *
+     * @param index The index of the available input parameter.
+     * @param parameter A {@link Format} object containing the corresponding index input parameter.
+     * @param attribute A read only {@link Format} object containing the corresponding index input attribute.
+     * @since 5.0
+     */
+    virtual void OnInputParameterWithAttrAvailable(uint32_t index, std::shared_ptr<Format> attribute,
+                                                   std::shared_ptr<Format> parameter) = 0;
+};
+
 class SurfaceBufferExtratDataKey {
 public:
     /**
@@ -201,6 +251,8 @@ public:
     static constexpr std::string_view SOURCE_FILE_TYPE     = "file_type";        // string, type
     static constexpr std::string_view SOURCE_HAS_VIDEO     = "has_video";        // bool, contain video tracks
     static constexpr std::string_view SOURCE_HAS_AUDIO     = "has_audio";        // bool, contain audio tracks
+    static constexpr std::string_view SOURCE_HAS_TIMEDMETA = "has_timed_meta";   // bool, contain timed metadata tracks
+    static constexpr std::string_view SOURCE_HAS_SUBTITLE  = "has_subtitle";     // bool, contain subtitle tracks
     static constexpr std::string_view SOURCE_AUTHOR        = "author";           // string, autbor
     static constexpr std::string_view SOURCE_COMPOSER      = "composer";         // string, composer
 private:

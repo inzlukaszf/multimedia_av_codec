@@ -30,22 +30,26 @@ class VideoSink : public MediaSynchronousSink {
 public:
     VideoSink();
     ~VideoSink();
-    bool DoSyncWrite(const std::shared_ptr<OHOS::Media::AVBuffer>& buffer) override; // true and render
+    int64_t DoSyncWrite(const std::shared_ptr<OHOS::Media::AVBuffer>& buffer) override; // true and render
     void ResetSyncInfo() override;
     Status GetLatency(uint64_t& nanoSec);
-    bool CheckBufferLatenessMayWait(const std::shared_ptr<OHOS::Media::AVBuffer>& buffer);
+    int64_t CheckBufferLatenessMayWait(const std::shared_ptr<OHOS::Media::AVBuffer>& buffer);
     void SetSyncCenter(std::shared_ptr<MediaSyncManager> syncCenter);
     void SetEventReceiver(const std::shared_ptr<EventReceiver> &receiver);
     void SetFirstPts(int64_t pts);
     void SetSeekFlag();
+    void SetLastPts(int64_t lastPts);
+    Status SetParameter(const std::shared_ptr<Meta>& meta);
 private:
+    float GetSpeed(float speed);
     int64_t refreshTime_ {0};
     bool isFirstFrame_ {true};
     uint32_t frameRate_ {0};
+    int64_t firstFramePts_ {0};
+    int64_t firstFrameNowct_ {0};
     int64_t lastTimeStamp_ {HST_TIME_NONE};
     int64_t lastBufferTime_ {HST_TIME_NONE};
     int64_t deltaTimeAccu_ {0};
-    bool forceRenderNextFrame_ {false};
     VideoScaleType videoScaleType_ {VideoScaleType::VIDEO_SCALE_TYPE_FIT};
 
     void CalcFrameRate();
@@ -56,6 +60,10 @@ private:
     int64_t firstPts_ {HST_TIME_NONE};
     int64_t fixDelay_ {0};
     bool seekFlag_{false};
+    std::atomic<bool> lastFrameDropped_ {false};
+    int64_t lastPts_ = -1;
+    int64_t lastClockTime_ = -1;
+    std::atomic<bool> isRenderStarted_{false};
 };
 } // namespace Pipeline
 } // namespace Media

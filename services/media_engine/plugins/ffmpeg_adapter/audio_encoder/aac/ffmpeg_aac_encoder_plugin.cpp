@@ -30,6 +30,7 @@ using namespace OHOS::Media::Plugins;
 using namespace Ffmpeg;
 
 namespace {
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = { LOG_CORE, LOG_DOMAIN_AUDIO, "HiStreamer" };
 constexpr int32_t INPUT_BUFFER_SIZE_DEFAULT = 4 * 1024 * 8;
 constexpr int32_t OUTPUT_BUFFER_SIZE_DEFAULT = 8192;
 constexpr int32_t ADTS_HEADER_SIZE = 7;
@@ -42,6 +43,12 @@ constexpr int32_t AAC_DEFAULT_BIT_RATE = 128000;
 constexpr int32_t AAC_MAX_BIT_RATE = 500000;
 constexpr int64_t FRAMES_PER_SECOND = 1000 / 20;
 constexpr int32_t BUFFER_FLAG_EOS = 0x00000001;
+constexpr int32_t NS_PER_US = 1000;
+constexpr int32_t AAC_FRAME_SIZE = 1024;
+constexpr int32_t CORRECTION_SAMPLE_RATE = 8000;
+constexpr int32_t CORRECTION_BIT_RATE = 70000;
+constexpr int32_t CORRECTION_CHANNEL_COUNT = 2;
+constexpr float Q_SCALE = 1.2f;
 static std::map<int32_t, uint8_t> sampleFreqMap = {{96000, 0},  {88200, 1}, {64000, 2}, {48000, 3}, {44100, 4},
                                                    {32000, 5},  {24000, 6}, {22050, 7}, {16000, 8}, {12000, 9},
                                                    {11025, 10}, {8000, 11}, {7350, 12}};
@@ -88,7 +95,6 @@ FFmpegAACEncoderPlugin::FFmpegAACEncoderPlugin(const std::string& name)
 FFmpegAACEncoderPlugin::~FFmpegAACEncoderPlugin()
 {
     CloseCtxLocked();
-    avCodecContext_.reset();
 }
 
 Status FFmpegAACEncoderPlugin::GetAdtsHeader(std::string &adtsHeader, int32_t &headerSize,
@@ -214,11 +220,13 @@ bool FFmpegAACEncoderPlugin::AudioSampleFormat2AVSampleFormat(const AudioSampleF
 
 Status FFmpegAACEncoderPlugin::Init()
 {
+    MEDIA_LOG_I("Init enter");
     return Status::OK;
 }
 
 Status FFmpegAACEncoderPlugin::Start()
 {
+    MEDIA_LOG_I("Start enter");
     Status status = AllocateContext("aac");
     if (status != Status::OK) {
         MEDIA_LOG_D("Allocat aac context failed, status = %{public}d", status);
@@ -284,6 +292,10 @@ Status FFmpegAACEncoderPlugin::QueueOutputBuffer(std::shared_ptr<AVBuffer> &outp
         MEDIA_LOG_E("queue out buffer is nullptr.");
         return Status::ERROR_INVALID_PARAMETER;
     }
+    std::lock_guard<std::mutex> lock(avMutex_);
+    if (avCodecContext_ == nullptr) {
+        return Status::ERROR_WRONG_STATE;
+    }
     outBuffer_ = outputBuffer;
     Status ret = SendOutputBuffer(outputBuffer);
     return ret;
@@ -318,8 +330,8 @@ Status FFmpegAACEncoderPlugin::ReceivePacketSucc(std::shared_ptr<AVBuffer> &outB
         return Status::ERROR_UNKNOWN;
     }
 
-    // how get perfect pts with upstream pts
-    outBuffer->duration_ = ConvertTimeFromFFmpeg(avPacket_->duration, avCodecContext_->time_base);
+    // how get perfect pts with upstream pts(us)
+    outBuffer->duration_ = ConvertTimeFromFFmpeg(avPacket_->duration, avCodecContext_->time_base) / NS_PER_US;
     // adjust ffmpeg duration with sample rate
     outBuffer->pts_ = ((INT64_MAX - prevPts_) < avPacket_->duration)
                           ? (outBuffer->duration_ - (INT64_MAX - prevPts_))
@@ -330,6 +342,7 @@ Status FFmpegAACEncoderPlugin::ReceivePacketSucc(std::shared_ptr<AVBuffer> &outB
 
 Status FFmpegAACEncoderPlugin::ReceiveBuffer(std::shared_ptr<AVBuffer> &outBuffer)
 {
+    MEDIA_LOG_D("ReceiveBuffer enter");
     (void)memset_s(avPacket_.get(), sizeof(AVPacket), 0, sizeof(AVPacket));
     auto ret = avcodec_receive_packet(avCodecContext_.get(), avPacket_.get());
     Status status;
@@ -391,24 +404,25 @@ Status FFmpegAACEncoderPlugin::SendOutputBuffer(std::shared_ptr<AVBuffer> &outpu
 
 Status FFmpegAACEncoderPlugin::Reset()
 {
-    std::unique_lock lock(avMutex_);
+    MEDIA_LOG_I("Reset enter");
+    std::lock_guard<std::mutex> lock(avMutex_);
     auto ret = CloseCtxLocked();
-    avCodecContext_.reset();
     prevPts_ = 0;
     return ret;
 }
 
 Status FFmpegAACEncoderPlugin::Release()
 {
-    std::unique_lock lock(avMutex_);
+    MEDIA_LOG_I("Release enter");
+    std::lock_guard<std::mutex> lock(avMutex_);
     auto ret = CloseCtxLocked();
-    avCodecContext_.reset();
     return ret;
 }
 
 Status FFmpegAACEncoderPlugin::Flush()
 {
-    std::unique_lock lock(avMutex_);
+    MEDIA_LOG_I("Flush enter");
+    std::lock_guard<std::mutex> lock(avMutex_);
     if (avCodecContext_ != nullptr) {
         avcodec_flush_buffers(avCodecContext_.get());
     }
@@ -428,8 +442,10 @@ Status FFmpegAACEncoderPlugin::ReAllocateContext()
 
     AVCodecContext *context = avcodec_alloc_context3(avCodec_.get());
     auto tmpContext = std::shared_ptr<AVCodecContext>(context, [](AVCodecContext *ptr) {
-        avcodec_free_context(&ptr);
-        avcodec_close(ptr);
+        if (ptr) {
+            avcodec_free_context(&ptr);
+            ptr = nullptr;
+        }
     });
 
     tmpContext->channels = avCodecContext_->channels;
@@ -437,6 +453,9 @@ Status FFmpegAACEncoderPlugin::ReAllocateContext()
     tmpContext->bit_rate = avCodecContext_->bit_rate;
     tmpContext->channel_layout = avCodecContext_->channel_layout;
     tmpContext->sample_fmt = avCodecContext_->sample_fmt;
+    tmpContext->flags = avCodecContext_->flags;
+    tmpContext->global_quality = avCodecContext_->global_quality;
+    MEDIA_LOG_I("flags:%{public}d global_quality:%{public}d", tmpContext->flags, tmpContext->global_quality);
 
     auto res = avcodec_open2(tmpContext.get(), avCodec_.get(), nullptr);
     if (res != 0) {
@@ -451,7 +470,7 @@ Status FFmpegAACEncoderPlugin::ReAllocateContext()
 Status FFmpegAACEncoderPlugin::AllocateContext(const std::string &name)
 {
     {
-        std::unique_lock lock(avMutex_);
+        std::lock_guard<std::mutex> lock(avMutex_);
         avCodec_ = std::shared_ptr<AVCodec>(const_cast<AVCodec *>(avcodec_find_encoder_by_name(name.c_str())),
                                             [](AVCodec *ptr) {});
         cachedFrame_ = std::shared_ptr<AVFrame>(av_frame_alloc(), [](AVFrame *fp) { av_frame_free(&fp); });
@@ -463,11 +482,13 @@ Status FFmpegAACEncoderPlugin::AllocateContext(const std::string &name)
 
     AVCodecContext *context = nullptr;
     {
-        std::unique_lock lock(avMutex_);
+        std::lock_guard<std::mutex> lock(avMutex_);
         context = avcodec_alloc_context3(avCodec_.get());
         avCodecContext_ = std::shared_ptr<AVCodecContext>(context, [](AVCodecContext *ptr) {
-            avcodec_free_context(&ptr);
-            avcodec_close(ptr);
+            if (ptr) {
+                avcodec_free_context(&ptr);
+                ptr = nullptr;
+            }
         });
     }
     return Status::OK;
@@ -480,6 +501,17 @@ Status FFmpegAACEncoderPlugin::InitContext()
     avCodecContext_->bit_rate = bitRate_;
     avCodecContext_->channel_layout = srcLayout_;
     avCodecContext_->sample_fmt = srcFmt_;
+    // 8khz 2声道编码码率校正
+    if (sampleRate_ == CORRECTION_SAMPLE_RATE && channels_ == CORRECTION_CHANNEL_COUNT &&
+        bitRate_ < CORRECTION_BIT_RATE) {
+        // 设置 AV_CODEC_FLAG_QSCALE 标志
+        avCodecContext_->flags |= AV_CODEC_FLAG_QSCALE;
+        // Q_SCALE质量参数，对应FFmpeg 命令行工具的-q:a参数,范围通常是0.1~2。
+        // 此处Q_SCALE:1.2 global_quality:141比较合适
+        avCodecContext_->global_quality = static_cast<int32_t>(FF_QP2LAMBDA * Q_SCALE);
+        MEDIA_LOG_I("flags:%{public}d global_quality:%{public}d", avCodecContext_->flags,
+            avCodecContext_->global_quality);
+    }
 
     if (needResample_) {
         avCodecContext_->sample_fmt = avCodec_->sample_fmts[0];
@@ -518,7 +550,7 @@ Status FFmpegAACEncoderPlugin::OpenContext()
             .channels = static_cast<uint32_t>(avCodecContext_->channels),
             .sampleRate = static_cast<uint32_t>(avCodecContext_->sample_rate),
             .bitsPerSample = 0,
-            .channelLayout = static_cast<uint32_t>(avCodecContext_->channel_layout),
+            .channelLayout = avCodecContext_->ch_layout,
             .srcFfFmt = srcFmt_,
             .destSamplesPerFrame = static_cast<uint32_t>(destSamplesPerFrame),
             .destFmt = avCodecContext_->sample_fmt,
@@ -549,6 +581,7 @@ bool FFmpegAACEncoderPlugin::CheckResample() const
 Status FFmpegAACEncoderPlugin::GetMetaData(const std::shared_ptr<Meta> &meta)
 {
     int32_t type;
+    MEDIA_LOG_I("GetMetaData enter");
     if (meta->Get<Tag::AUDIO_AAC_IS_ADTS>(type)) {
         aacName_ = (type == 1 ? "aac" : "aac_latm");
     }
@@ -594,6 +627,7 @@ Status FFmpegAACEncoderPlugin::GetMetaData(const std::shared_ptr<Meta> &meta)
 
 Status FFmpegAACEncoderPlugin::SetParameter(const std::shared_ptr<Meta> &meta)
 {
+    MEDIA_LOG_I("SetParameter enter");
     std::lock_guard<std::mutex> lock(parameterMutex_);
     Status ret = GetMetaData(meta);
     if (!CheckFormat()) {
@@ -601,6 +635,7 @@ Status FFmpegAACEncoderPlugin::SetParameter(const std::shared_ptr<Meta> &meta)
         return Status::ERROR_INVALID_PARAMETER;
     }
     audioParameter_ = *meta;
+    audioParameter_.Set<Tag::AUDIO_SAMPLE_PER_FRAME>(AAC_FRAME_SIZE);
     return ret;
 }
 
@@ -621,6 +656,7 @@ Status FFmpegAACEncoderPlugin::GetParameter(std::shared_ptr<Meta> &meta)
 
 Status FFmpegAACEncoderPlugin::InitFrame()
 {
+    MEDIA_LOG_I("InitFrame enter");
     cachedFrame_->nb_samples = avCodecContext_->frame_size;
     cachedFrame_->format = avCodecContext_->sample_fmt;
     cachedFrame_->channel_layout = avCodecContext_->channel_layout;
@@ -685,6 +721,7 @@ Status FFmpegAACEncoderPlugin::PushInFifo(const std::shared_ptr<AVBuffer> &input
 
 Status FFmpegAACEncoderPlugin::SendFrameToFfmpeg()
 {
+    MEDIA_LOG_D("SendFrameToFfmpeg enter");
     int32_t fifoSize = av_audio_fifo_size(fifo_);
     if (fifoSize < avCodecContext_->frame_size) {
         MEDIA_LOG_D("fifoSize:%{public}d not enough", fifoSize);
@@ -721,6 +758,7 @@ Status FFmpegAACEncoderPlugin::SendFrameToFfmpeg()
 
 Status FFmpegAACEncoderPlugin::PcmFillFrame(const std::shared_ptr<AVBuffer> &inputBuffer)
 {
+    MEDIA_LOG_D("PcmFillFrame enter, buffer->pts" PUBLIC_LOG_D64, inputBuffer->pts_);
     auto memory = inputBuffer->memory_;
     auto bytesPerSample = av_get_bytes_per_sample(avCodecContext_->sample_fmt);
     const uint8_t *srcBuffer = memory->GetAddr();
@@ -771,10 +809,11 @@ Status FFmpegAACEncoderPlugin::Prepare()
 
 Status FFmpegAACEncoderPlugin::Stop()
 {
+    std::lock_guard<std::mutex> lock(avMutex_);
     auto ret = CloseCtxLocked();
-    avCodecContext_.reset();
     if (outBuffer_) {
         outBuffer_.reset();
+        outBuffer_ = nullptr;
     }
     MEDIA_LOG_I("Stop");
     return ret;
@@ -793,11 +832,8 @@ Status FFmpegAACEncoderPlugin::GetOutputBuffers(std::vector<std::shared_ptr<AVBu
 Status FFmpegAACEncoderPlugin::CloseCtxLocked()
 {
     if (avCodecContext_ != nullptr) {
-        auto res = avcodec_close(avCodecContext_.get());
-        if (res != 0) {
-            MEDIA_LOG_E("avcodec close failed: %{public}s", OSAL::AVStrError(res).c_str());
-            return Status::ERROR_UNKNOWN;
-        }
+        avCodecContext_.reset();
+        avCodecContext_ = nullptr;
     }
     if (fifo_) {
         av_audio_fifo_free(fifo_);

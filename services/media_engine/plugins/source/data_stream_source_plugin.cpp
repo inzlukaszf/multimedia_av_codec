@@ -18,7 +18,12 @@
 #ifndef OHOS_LITE
 #include "data_stream_source_plugin.h"
 #include "common/log.h"
+#include "common/media_core.h"
 #include "osal/utils/util.h"
+
+namespace {
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = { LOG_CORE, LOG_DOMAIN_SYSTEM_PLAYER, "HiStreamer" };
+}
 
 namespace OHOS {
 namespace Media {
@@ -30,6 +35,8 @@ namespace {
     constexpr uint32_t MAX_MEM_CNT = 10 * 1024;
     constexpr size_t DEFAULT_PREDOWNLOAD_SIZE_BYTE = 10 * 1024 * 1024;
     constexpr uint32_t DEFAULT_RETRY_TIMES = 20;
+    constexpr uint32_t READ_AGAIN_RETRY_TIME = 100;
+    constexpr uint32_t READ_ERROR_RETRY_TIME = 50;
 }
 std::shared_ptr<Plugins::SourcePlugin> DataStreamSourcePluginCreator(const std::string& name)
 {
@@ -77,6 +84,14 @@ Status DataStreamSourcePlugin::SetSource(std::shared_ptr<Plugins::MediaSource> s
     size_ = size;
     seekable_ = size_ == -1 ? Plugins::Seekable::UNSEEKABLE : Plugins::Seekable::SEEKABLE;
     MEDIA_LOG_I("SetSource, size_: " PUBLIC_LOG_D64 ", seekable_: " PUBLIC_LOG_D32, size_, seekable_);
+    return Status::OK;
+}
+
+Status DataStreamSourcePlugin::SetCallback(Plugins::Callback* cb)
+{
+    MEDIA_LOG_D("IN");
+    callback_ = cb;
+    MEDIA_LOG_D("OUT");
     return Status::OK;
 }
 
@@ -132,31 +147,66 @@ Status DataStreamSourcePlugin::Read(std::shared_ptr<Plugins::Buffer>& buffer, ui
             expectedLen = std::min(static_cast<size_t>(memory->GetSize()), expectedLen);
             realLen = dataSrc_->ReadAt(expectedLen, memory);
         }
-        if (realLen == 0) {
-            OSAL::SleepFor(50); // 50ms sleep time for connect
-            retryTimes_++;
-        } else {
+        if (realLen > 0) {
             retryTimes_ = 0;
+            HandleBufferingEnd();
+            break;
         }
-    } while (realLen <= 0 && retryTimes_ < DEFAULT_RETRY_TIMES);
+        if (realLen == 0) {
+            HandleBufferingStart();
+            OSAL::SleepFor(READ_AGAIN_RETRY_TIME);
+            MEDIA_LOG_D("Read length is 0, read again.");
+            break;
+        }
+        if (realLen == MediaDataSourceError::SOURCE_ERROR_EOF) {
+            return Status::END_OF_STREAM;
+        }
+        OSAL::SleepFor(READ_ERROR_RETRY_TIME); // 50ms sleep time for connect
+        retryTimes_++;
+    } while (realLen < 0 && retryTimes_ < DEFAULT_RETRY_TIMES);
     FALSE_RETURN_V_MSG(realLen != MediaDataSourceError::SOURCE_ERROR_IO, Status::ERROR_UNKNOWN, "read data error!");
     FALSE_RETURN_V_MSG(realLen != MediaDataSourceError::SOURCE_ERROR_EOF, Status::END_OF_STREAM, "eos reached!");
-    offset_ += realLen;
+    offset_ += static_cast<uint64_t>(realLen);
     if (buffer && buffer->GetMemory()) {
         buffer->GetMemory()->Write(memory->GetBase(), realLen, 0);
     } else {
         buffer = WrapAVSharedMemory(memory, realLen);
     }
+    FALSE_RETURN_V(buffer != nullptr, Status::ERROR_AGAIN);
     MEDIA_LOG_D("DataStreamSourcePlugin Read, size: " PUBLIC_LOG_ZU ", realLen: " PUBLIC_LOG_D32
         ", retryTimes: " PUBLIC_LOG_U32, (buffer && buffer->GetMemory()) ?
         buffer->GetMemory()->GetSize() : -100, realLen, retryTimes_); // -100 invalid size
+    FALSE_RETURN_V(realLen != 0, Status::ERROR_AGAIN);
     return Status::OK;
+}
+
+void DataStreamSourcePlugin::HandleBufferingStart()
+{
+    if (!isBufferingStart) {
+        isBufferingStart = true;
+        if (callback_ != nullptr) {
+            MEDIA_LOG_I("OnEvent BUFFERING_START.");
+            callback_->OnEvent({Plugins::PluginEventType::BUFFERING_START,
+                {BufferingInfoType::BUFFERING_START}, "pause"});
+        }
+    }
+}
+
+void DataStreamSourcePlugin::HandleBufferingEnd()
+{
+    if (isBufferingStart) {
+        isBufferingStart = false;
+        if (callback_ != nullptr) {
+            MEDIA_LOG_I("OnEvent BUFFERING_END.");
+            callback_->OnEvent({Plugins::PluginEventType::BUFFERING_END, {BufferingInfoType::BUFFERING_END}, "end"});
+        }
+    }
 }
 
 Status DataStreamSourcePlugin::GetSize(uint64_t& size)
 {
     if (seekable_ == Plugins::Seekable::SEEKABLE) {
-        size = size_;
+        size = static_cast<uint64_t>(size_);
     } else {
         size = std::max(static_cast<size_t>(offset_), DEFAULT_PREDOWNLOAD_SIZE_BYTE);
     }

@@ -48,7 +48,7 @@ int32_t DemuxerInnerMock::UnselectTrackByID(uint32_t trackIndex)
 }
 
 int32_t DemuxerInnerMock::ReadSample(uint32_t trackIndex, std::shared_ptr<AVMemoryMock> sample,
-    AVCodecBufferInfo *bufferInfo, uint32_t &flag)
+    AVCodecBufferInfo *bufferInfo, uint32_t &flag, bool checkBufferInfo)
 {
     if (bufferInfo == nullptr) {
         printf("AVCodecBufferInfo is nullptr");
@@ -72,6 +72,18 @@ int32_t DemuxerInnerMock::ReadSample(uint32_t trackIndex, std::shared_ptr<AVMemo
         bufferInfo->size = buffer->memory_->GetSize();
         bufferInfo->offset = 0;
         flag = buffer->flag_;
+        if (checkBufferInfo) {
+            std::shared_ptr<Meta> bufferMeta = buffer->meta_;
+            if (bufferMeta == nullptr) {
+                printf("AVBuffer meta is nullptr");
+            } else {
+                int64_t duration;
+                int64_t dts;
+                bufferMeta->GetData(Tag::BUFFER_DURATION, duration);
+                bufferMeta->GetData(Tag::BUFFER_DECODING_TIMESTAMP, dts);
+                printf("[track %d] duration %" PRId64 " dts %" PRId64 "\n", trackIndex, duration, dts);
+            }
+        }
         return ret;
     }
     return AV_ERR_UNKNOWN;
@@ -82,6 +94,24 @@ int32_t DemuxerInnerMock::SeekToTime(int64_t mSeconds, SeekMode mode)
     if (demuxer_ != nullptr) {
         SeekMode seekMode = static_cast<SeekMode>(mode);
         return demuxer_->SeekToTime(mSeconds, seekMode);
+    }
+    return AV_ERR_UNKNOWN;
+}
+
+int32_t DemuxerInnerMock::GetIndexByRelativePresentationTimeUs(const uint32_t trackIndex,
+    const uint64_t relativePresentationTimeUs, uint32_t &index)
+{
+    if (demuxer_ != nullptr) {
+        return demuxer_->GetIndexByRelativePresentationTimeUs(trackIndex, relativePresentationTimeUs, index);
+    }
+    return AV_ERR_UNKNOWN;
+}
+
+int32_t DemuxerInnerMock::GetRelativePresentationTimeUsByIndex(const uint32_t trackIndex,
+    const uint32_t index, uint64_t &relativePresentationTimeUs)
+{
+    if (demuxer_ != nullptr) {
+        return demuxer_->GetRelativePresentationTimeUsByIndex(trackIndex, index, relativePresentationTimeUs);
     }
     return AV_ERR_UNKNOWN;
 }

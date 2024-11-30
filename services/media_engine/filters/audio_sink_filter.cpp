@@ -12,6 +12,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#define MEDIA_PIPELINE
 
 #define HST_LOG_TAG "AudioSinkFilter"
 #include "audio_sink_filter.h"
@@ -19,6 +20,12 @@
 #include "osal/utils/util.h"
 #include "osal/utils/dump_buffer.h"
 #include "filter/filter_factory.h"
+#include "media_core.h"
+#include "parameters.h"
+
+namespace {
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = { LOG_CORE, LOG_DOMAIN_SYSTEM_PLAYER, "AudioSinkFilter" };
+}
 
 namespace OHOS {
 namespace Media {
@@ -30,17 +37,33 @@ static AutoRegisterFilter<AudioSinkFilter> g_registerAudioSinkFilter("builtin.pl
         return std::make_shared<AudioSinkFilter>(name, FilterType::FILTERTYPE_ASINK);
     });
 
+static const bool IS_FILTER_ASYNC = system::GetParameter("persist.media_service.async_filter", "1") == "1";
+
+AudioSinkFilter::AVBufferAvailableListener::AVBufferAvailableListener(std::shared_ptr<AudioSinkFilter> audioSinkFilter)
+{
+    audioSinkFilter_ = audioSinkFilter;
+}
+
+void AudioSinkFilter::AVBufferAvailableListener::OnBufferAvailable()
+{
+    if (auto sink = audioSinkFilter_.lock()) {
+        sink->ProcessInputBuffer();
+    } else {
+        MEDIA_LOG_I("invalid audioSink");
+    }
+}
+
 AudioSinkFilter::AudioSinkFilter(const std::string& name, FilterType filterType)
-    : Filter(name, FilterType::FILTERTYPE_ASINK)
+    : Filter(name, FilterType::FILTERTYPE_ASINK, IS_FILTER_ASYNC)
 {
     filterType_ = filterType;
     audioSink_ = std::make_shared<AudioSink>();
-    MEDIA_LOG_I("audio sink ctor called");
+    MEDIA_LOG_D("audio sink ctor called");
 }
 
 AudioSinkFilter::~AudioSinkFilter()
 {
-    MEDIA_LOG_I("dtor called");
+    MEDIA_LOG_D("dtor called");
 }
 
 void AudioSinkFilter::Init(const std::shared_ptr<EventReceiver> &receiver,
@@ -49,45 +72,61 @@ void AudioSinkFilter::Init(const std::shared_ptr<EventReceiver> &receiver,
     Filter::Init(receiver, callback);
     eventReceiver_ = receiver;
     filterCallback_ = callback;
+    MEDIA_LOG_D("audio sink Init called");
 }
 
-Status AudioSinkFilter::Prepare()
+Status AudioSinkFilter::DoInitAfterLink()
+{
+    audioSink_->SetParameter(globalMeta_);
+    Status ret = audioSink_->Init(trackMeta_, eventReceiver_);
+    audioSink_->SetEventReceiver(eventReceiver_);
+    audioSink_->SetThreadGroupId(groupId_);
+    return ret;
+}
+
+Status AudioSinkFilter::DoPrepare()
 {
     audioSink_->Prepare();
+    inputBufferQueueConsumer_ = audioSink_->GetBufferQueueConsumer();
+    sptr<IConsumerListener> listener = new AVBufferAvailableListener(shared_from_this());
+    inputBufferQueueConsumer_->SetBufferAvailableListener(listener);
     if (onLinkedResultCallback_ != nullptr) {
-        onLinkedResultCallback_->OnLinkedResult(audioSink_->GetInputBufferQueue(), trackMeta_);
+        onLinkedResultCallback_->OnLinkedResult(audioSink_->GetBufferQueueProducer(), trackMeta_);
     }
     state_ = FilterState::READY;
-    return Filter::Prepare();
+    return Status::OK;
 }
 
-Status AudioSinkFilter::Start()
+Status AudioSinkFilter::DoStart()
 {
     MEDIA_LOG_I("start called");
+    if (state_ == FilterState::RUNNING) {
+        return Status::OK;
+    }
     if (state_ != FilterState::READY && state_ != FilterState::PAUSED) {
         MEDIA_LOG_W("sink is not ready when start, state: " PUBLIC_LOG_D32, state_);
         return Status::ERROR_INVALID_OPERATION;
     }
     forceUpdateTimeAnchorNextTime_ = true;
-    auto err = Filter::Start();
+    auto err = audioSink_->Start();
     if (err != Status::OK) {
-        MEDIA_LOG_E("audio sink filter start error");
+        eventReceiver_->OnEvent({"audio_sink_filter", EventType::EVENT_ERROR, MSERR_AUD_RENDER_FAILED});
         return err;
     }
     state_ = FilterState::RUNNING;
-    err = audioSink_->Start();
-    FALSE_RETURN_V_W(err != Status::OK, err);
-    state_ = FilterState::RUNNING;
     frameCnt_ = 0;
-    return Status::OK;
+    return err;
 }
 
-Status AudioSinkFilter::Pause()
+Status AudioSinkFilter::DoPause()
 {
     MEDIA_LOG_I("audio sink filter pause start");
+    if (state_ == FilterState::PAUSED) {
+        return Status::OK;
+    }
     // only worked when state is working
     if (state_ != FilterState::READY && state_ != FilterState::RUNNING) {
-        MEDIA_LOG_W("audio sink cannot pause when not working");
+        MEDIA_LOG_W("audio sink cannot pause when not working.");
         return Status::ERROR_INVALID_OPERATION;
     }
     state_ = FilterState::PAUSED;
@@ -96,9 +135,12 @@ Status AudioSinkFilter::Pause()
     return err;
 }
 
-Status AudioSinkFilter::Resume()
+Status AudioSinkFilter::DoResume()
 {
     MEDIA_LOG_I("audio sink filter resume");
+    if (state_ == FilterState::RUNNING) {
+        return Status::OK;
+    }
     // only worked when state is paused
     if (state_ == FilterState::PAUSED || state_ == FilterState::RUNNING) {
         forceUpdateTimeAnchorNextTime_ = true;
@@ -111,8 +153,13 @@ Status AudioSinkFilter::Resume()
     return Status::OK;
 }
 
-Status AudioSinkFilter::Flush()
+Status AudioSinkFilter::DoFlush()
 {
+    // only worked when state is working
+    if (state_ != FilterState::PAUSED && state_ != FilterState::STOPPED) {
+        MEDIA_LOG_W("audio sink cannot flush when not paused or stopped");
+        return Status::ERROR_INVALID_OPERATION;
+    }
     MEDIA_LOG_I("audio sink flush start");
     if (audioSink_ != nullptr) {
         audioSink_->Flush();
@@ -121,20 +168,36 @@ Status AudioSinkFilter::Flush()
     return Status::OK;
 }
 
-Status AudioSinkFilter::Stop()
+Status AudioSinkFilter::DoStop()
 {
+    if (state_ == FilterState::STOPPED) {
+        return Status::OK;
+    }
     MEDIA_LOG_I("audio sink stop start");
-    Filter::Stop();
     if (audioSink_ != nullptr) {
         audioSink_->Stop();
     }
+    state_ = FilterState::STOPPED;
     MEDIA_LOG_I("audio sink stop finish");
     return Status::OK;
 }
 
-Status AudioSinkFilter::Release()
+Status AudioSinkFilter::DoRelease()
 {
     return audioSink_->Release();
+}
+
+Status AudioSinkFilter::DoSetPlayRange(int64_t start, int64_t end)
+{
+    MEDIA_LOG_I("DoSetPlayRange enter.");
+    audioSink_->SetPlayRange(start, end);
+    return Status::OK;
+}
+
+Status AudioSinkFilter::DoProcessInputBuffer(int recvArg, bool dropFrame)
+{
+    audioSink_->DrainOutputBuffer();
+    return Status::OK;
 }
 
 int32_t AudioSinkFilter::SetVolumeWithRamp(float targetVolume, int32_t duration)
@@ -158,14 +221,16 @@ Status AudioSinkFilter::OnLinked(StreamType inType, const std::shared_ptr<Meta>&
     const std::shared_ptr<FilterLinkCallback>& callback)
 {
     Plugins::AudioRenderInfo audioRenderInfo;
+    int32_t interruptMode;
     if (globalMeta_ != nullptr && meta != nullptr) {
-        globalMeta_->GetData(OHOS::Media::Tag::AUDIO_RENDER_INFO, audioRenderInfo);
-        meta->SetData(Tag::AUDIO_RENDER_INFO, audioRenderInfo);
+        if (globalMeta_->GetData(OHOS::Media::Tag::AUDIO_RENDER_INFO, audioRenderInfo)) {
+            meta->SetData(Tag::AUDIO_RENDER_INFO, audioRenderInfo);
+        }
+        if (globalMeta_->GetData(OHOS::Media::Tag::AUDIO_INTERRUPT_MODE, interruptMode)) {
+            meta->SetData(Tag::AUDIO_INTERRUPT_MODE, interruptMode);
+        }
     }
     trackMeta_ = meta;
-    audioSink_->Init(trackMeta_, eventReceiver_);
-    audioSink_->SetEventReceiver(eventReceiver_);
-    audioSink_->SetParameter(meta);
     onLinkedResultCallback_ = callback;
     return Filter::OnLinked(inType, meta, callback);
 }
@@ -191,20 +256,20 @@ void AudioSinkFilter::SetSyncCenter(std::shared_ptr<MediaSyncManager> syncCenter
 
 Status AudioSinkFilter::SetSpeed(float speed)
 {
-    MEDIA_LOG_I("AudioSinkFilter::SetSpeed in, speed is " PUBLIC_LOG ".3f", speed);
+    MEDIA_LOG_I("SetSpeed in, speed is " PUBLIC_LOG ".3f", speed);
     FALSE_RETURN_V(audioSink_ != nullptr, Status::ERROR_INVALID_STATE);
     if (speed < 0) {
-        MEDIA_LOG_E("AudioSinkFilter::SetSpeed speed is less than 0.");
+        MEDIA_LOG_E("SetSpeed speed is less than 0.");
         return Status::ERROR_INVALID_PARAMETER;
     }
     Status res = audioSink_->SetSpeed(speed);
-    MEDIA_LOG_I("AudioSinkFilter::SetSpeed out");
+    MEDIA_LOG_I("SetSpeed out");
     return res;
 }
 
 Status AudioSinkFilter::SetAudioEffectMode(int32_t effectMode)
 {
-    MEDIA_LOG_I("AudioSinkFilter::SetAudioEffectMode in");
+    MEDIA_LOG_I("SetAudioEffectMode in");
     FALSE_RETURN_V(audioSink_ != nullptr, Status::ERROR_INVALID_STATE);
 
     Status res = audioSink_->SetAudioEffectMode(effectMode);
@@ -213,7 +278,7 @@ Status AudioSinkFilter::SetAudioEffectMode(int32_t effectMode)
 
 Status AudioSinkFilter::GetAudioEffectMode(int32_t &effectMode)
 {
-    MEDIA_LOG_I("AudioSinkFilter::GetAudioEffectMode in");
+    MEDIA_LOG_I("GetAudioEffectMode in");
     FALSE_RETURN_V(audioSink_ != nullptr, Status::ERROR_INVALID_STATE);
     Status res = audioSink_->GetAudioEffectMode(effectMode);
     return res;
@@ -221,9 +286,16 @@ Status AudioSinkFilter::GetAudioEffectMode(int32_t &effectMode)
 
 Status AudioSinkFilter::SetIsTransitent(bool isTransitent)
 {
-    MEDIA_LOG_I("AudioSinkFilter::SetIsTransitent in");
+    MEDIA_LOG_D("SetIsTransitent in");
     FALSE_RETURN_V(audioSink_ != nullptr, Status::ERROR_INVALID_STATE);
     return audioSink_->SetIsTransitent(isTransitent);
+}
+
+Status AudioSinkFilter::ChangeTrack(std::shared_ptr<Meta>& meta)
+{
+    MEDIA_LOG_I("AudioSinkFilter::ChangeTrack in");
+    FALSE_RETURN_V(audioSink_ != nullptr, Status::ERROR_INVALID_STATE);
+    return audioSink_->ChangeTrack(meta, eventReceiver_);
 }
 
 Status AudioSinkFilter::OnUpdated(StreamType inType, const std::shared_ptr<Meta>& meta,
@@ -235,6 +307,13 @@ Status AudioSinkFilter::OnUpdated(StreamType inType, const std::shared_ptr<Meta>
 Status AudioSinkFilter::OnUnLinked(StreamType inType, const std::shared_ptr<FilterLinkCallback>& callback)
 {
     return Filter::OnUnLinked(inType, callback);
+}
+
+Status AudioSinkFilter::SetMuted(bool isMuted)
+{
+    MEDIA_LOG_D("SetMuted");
+    FALSE_RETURN_V(audioSink_ != nullptr, Status::ERROR_INVALID_STATE);
+    return audioSink_->SetMuted(isMuted);
 }
 } // namespace Pipeline
 } // namespace Media

@@ -93,7 +93,7 @@ static int64_t GetFileSize(const char *fileName)
     return fileSize;
 }
 
-vector<string> SplitStringFully(const string &str, const string &separator)
+static vector<string> SplitStringFully(const string &str, const string &separator)
 {
     vector<string> dest;
     string substring;
@@ -115,7 +115,7 @@ vector<string> SplitStringFully(const string &str, const string &separator)
     return dest;
 }
 
-void String_replace(std::string &strBig, const std::string &strsrc, const std::string &strdst)
+static void StringReplace(std::string &strBig, const std::string &strsrc, const std::string &strdst)
 {
     std::string::size_type pos = 0;
     std::string::size_type srclen = strsrc.size();
@@ -127,7 +127,8 @@ void String_replace(std::string &strBig, const std::string &strsrc, const std::s
     }
 }
 
-void GetParamsByName(string decoderName, string inputFile, int32_t &channelCount, int32_t &sampleRate, long &bitrate)
+static void GetParamsByName(string decoderName, string inputFile, int32_t &channelCount,
+    int32_t &sampleRate, long &bitrate)
 {
     int32_t opusNameSplitNum = 4;
     vector<string> dest = SplitStringFully(inputFile, "_");
@@ -140,7 +141,7 @@ void GetParamsByName(string decoderName, string inputFile, int32_t &channelCount
         sampleRate = stoi(dest[1]);
 
         string bitStr = dest[2];
-        String_replace(bitStr, "k", "000");
+        StringReplace(bitStr, "k", "000");
         bitrate = atol(bitStr.c_str());
     } else if (decoderName == "OH.Media.Codec.Decoder.Audio.vivid") {
         if (dest.size() < opusNameSplitNum) {
@@ -151,7 +152,7 @@ void GetParamsByName(string decoderName, string inputFile, int32_t &channelCount
         sampleRate = stoi(dest[1]);
 
         string bitStr = dest[2];
-        String_replace(bitStr, "k", "000");
+        StringReplace(bitStr, "k", "000");
         bitrate = atol(bitStr.c_str());
     } else {
         if (dest.size() < opusNameSplitNum) {
@@ -162,7 +163,7 @@ void GetParamsByName(string decoderName, string inputFile, int32_t &channelCount
         sampleRate = stoi(dest[2]);    // 2nd parameter
 
         string bitStr = dest[1];
-        String_replace(bitStr, "k", "000");
+        StringReplace(bitStr, "k", "000");
         bitrate = atol(bitStr.c_str());
     }
 }
@@ -587,10 +588,8 @@ void ADecBufferDemo::OutputFunc()
         if (!isRunning_.load()) {
             break;
         }
-
         unique_lock<mutex> lock(signal_->outMutex_);
         signal_->outCond_.wait(lock, [this]() { return (signal_->outQueue_.size() > 0 || !isRunning_.load()); });
-
         if (!isRunning_.load()) {
             break;
         }
@@ -606,7 +605,6 @@ void ADecBufferDemo::OutputFunc()
             continue;
         }
         pcmOutputFile_.write(reinterpret_cast<char *>(OH_AVBuffer_GetAddr(data)), data->buffer_->memory_->GetSize());
-
         if (data != nullptr &&
             (data->buffer_->flag_ == AVCODEC_BUFFER_FLAGS_EOS || data->buffer_->memory_->GetSize() == 0)) {
             isRunning_.store(false);
@@ -626,7 +624,6 @@ void ADecBufferDemo::OutputFunc()
         if (OH_AudioCodec_FreeOutputBuffer(audioDec_, index) != AV_ERR_OK) {
             break;
         }
-
         if (data->buffer_->flag_ == AVCODEC_BUFFER_FLAGS_EOS) {
             isRunning_.store(false);
             signal_->startCond_.notify_all();
@@ -776,11 +773,13 @@ OH_AVErrCode ADecBufferDemo::PushInputData(OH_AVCodec *codec, uint32_t index)
     OH_AVCodecBufferAttr info;
 
     if (!signal_->inBufferQueue_.empty()) {
+        unique_lock<mutex> lock(signal_->inMutex_);
         auto buffer = signal_->inBufferQueue_.front();
-        info.size = buffer->buffer_->memory_->GetSize();
-        info.pts = buffer->buffer_->pts_;
-        info.flags = buffer->buffer_->flag_;
-        OH_AVErrCode ret = OH_AVBuffer_SetBufferAttr(buffer, &info);
+        OH_AVErrCode ret = OH_AVBuffer_GetBufferAttr(buffer, &info);
+        if (ret != AV_ERR_OK) {
+            return ret;
+        }
+        ret = OH_AVBuffer_SetBufferAttr(buffer, &info);
         if (ret != AV_ERR_OK) {
             return ret;
         }
@@ -793,13 +792,14 @@ uint32_t ADecBufferDemo::GetInputIndex()
 {
     int32_t sleep_time = 0;
     uint32_t index;
-    while (signal_->inQueue_.empty() && sleep_time < 5) {  // time 5
+    while (signal_->inQueue_.empty() && sleep_time < 5) { // time 5
         sleep(1);
         sleep_time++;
     }
     if (sleep_time >= 5) {  // time 5
         return 0;
     } else {
+        lock_guard<mutex> lock(signal_->inMutex_);
         index = signal_->inQueue_.front();
         signal_->inQueue_.pop();
     }
@@ -832,8 +832,10 @@ OH_AVErrCode ADecBufferDemo::PushInputDataEOS(OH_AVCodec *codec, uint32_t index)
     info.flags = AVCODEC_BUFFER_FLAGS_EOS;
 
     if (!signal_->inBufferQueue_.empty()) {
+        unique_lock<mutex> lock(signal_->inMutex_);
         auto buffer = signal_->inBufferQueue_.front();
         OH_AVBuffer_SetBufferAttr(buffer, &info);
+        signal_->inBufferQueue_.pop();
     }
     return OH_AudioCodec_PushInputBuffer(codec, index);
 }

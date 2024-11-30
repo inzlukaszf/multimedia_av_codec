@@ -34,12 +34,14 @@ namespace Media {
 
 struct SamplePacket {
     uint32_t offset = 0;
-    AVPacket* pkt = nullptr;
+    std::vector<AVPacket*> pkts {};
     bool isEOS = false;
     ~SamplePacket()
     {
-        if (pkt) {
-            av_packet_free(&pkt);
+        for (auto pkt : pkts) {
+            if (pkt) {
+                av_packet_free(&pkt);
+            }
         }
     }
 };
@@ -55,15 +57,18 @@ public:
     Status AddTrackQueue(uint32_t trackIndex);
     Status RemoveTrackQueue(uint32_t trackIndex);
     bool HasCache(uint32_t trackIndex);
-    void ResetQueue(uint32_t queueIndex);
+    size_t GetCacheSize(uint32_t trackIndex);
+    uint32_t GetCacheDataSize(uint32_t trackIndex);
     void FreeQueue(uint32_t queueIndex);
     bool Push(uint32_t trackIndex, std::shared_ptr<SamplePacket> block);
     std::shared_ptr<SamplePacket> Pop(uint32_t trackIndex);
     std::shared_ptr<SamplePacket> Front(uint32_t trackIndex);
+    std::shared_ptr<SamplePacket> Back(uint32_t trackIndex);
     
 private:
     struct InnerQueue {
         bool isValid {false};
+        uint32_t dataSize {0};
         std::shared_ptr<BlockQueue<std::shared_ptr<SamplePacket>>> blockQue {nullptr};
     };
     static constexpr size_t SINGLE_QUEUE_SIZE = 100;
@@ -77,6 +82,7 @@ private:
     uint32_t GetValidQueue();
     bool InnerQueueIsFull(uint32_t queueIndex);
     bool HasQueue(uint32_t trackIndex);
+    void ResetQueue(uint32_t queueIndex);
     std::recursive_mutex mutextCacheQ_ {};
 };
 } // namespace Media

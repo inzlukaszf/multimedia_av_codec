@@ -17,6 +17,7 @@
 #define HISTREAMER_NETWORK_CLIENT_H
 
 #include <string>
+#include <map>
 #include "network_typs.h"
 #include "plugin/plugin_event.h"
 #include "meta/media_types.h"
@@ -30,11 +31,13 @@ class NetworkClient {
 public:
     virtual ~NetworkClient() = default;
     virtual Status Init() = 0;
-    virtual Status Open(const std::string& url) = 0;
+    virtual Status Open(const std::string& url, const std::map<std::string, std::string>& httpHeader,
+                        int32_t timeoutMs) = 0;
     virtual Status RequestData(long startPos, int len, NetworkServerErrorCode& serverCode,
                                NetworkClientErrorCode& clientCode) = 0;
-    virtual Status Close() = 0;
+    virtual Status Close(bool isAsync) = 0;
     virtual Status Deinit() = 0;
+    virtual Status GetIp(std::string &ip) = 0;
 };
 }
 }

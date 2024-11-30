@@ -25,28 +25,44 @@ namespace Plugins {
 namespace HttpPlugin {
 class HlsPlayListDownloader : public PlayListDownloader {
 public:
-    HlsPlayListDownloader() = default;
-    ~HlsPlayListDownloader() override = default;
+    using PlayListDownloader::PlayListDownloader;
+    ~HlsPlayListDownloader() override;
 
-    void Open(const std::string& url) override;
+    void Open(const std::string& url, const std::map<std::string, std::string>& httpHeader) override;
     void UpdateManifest() override;
-    void ParseManifest() override;
-    void PlayListUpdateLoop() override;
+    void ParseManifest(const std::string& location, bool isPreParse = false) override;
     void SetPlayListCallback(PlayListChangeCallback* callback) override;
     int64_t GetDuration() const override;
     Seekable GetSeekable() const override;
     void SelectBitRate(uint32_t bitRate) override;
     std::vector<uint32_t> GetBitRates() override;
+    uint64_t GetCurrentBitRate() override;
+    int GetVedioHeight() override;
+    int GetVedioWidth() override;
     bool IsBitrateSame(uint32_t bitRate) override;
+    uint32_t GetCurBitrate() override;
     bool IsLive() const override;
     void NotifyListChange();
-
+    void SetMimeType(const std::string& mimeType) override;
+    void PreParseManifest(const std::string& location) override;
+    bool IsParseAndNotifyFinished() override;
+    bool IsParseFinished() override;
+    std::string GetUrl();
+    std::shared_ptr<M3U8MasterPlaylist> GetMaster();
+    std::shared_ptr<M3U8VariantStream> GetCurrentVariant();
+    std::shared_ptr<M3U8VariantStream> GetNewVariant();
+private:
+    void UpdateMasterInfo(bool isPreParse);
 private:
     std::string url_ {};
     PlayListChangeCallback* callback_ {nullptr};
     std::shared_ptr<M3U8MasterPlaylist> master_;
     std::shared_ptr<M3U8VariantStream> currentVariant_;
     std::shared_ptr<M3U8VariantStream> newVariant_;
+    std::string mimeType_;
+    std::atomic<bool> isParseFinished_ {false};
+    std::atomic<bool> isNotifyPlayListFinished_ {false};
+    std::atomic<bool> isLiveUpdateTaskStarted_ {false};
 };
 }
 }

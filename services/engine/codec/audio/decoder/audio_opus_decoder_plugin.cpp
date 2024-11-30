@@ -26,7 +26,7 @@
 #include "audio_opus_decoder_plugin.h"
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AvCodec-AudioOpusDecoderPlugin"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_AUDIO, "AvCodec-AudioOpusDecoderPlugin"};
 constexpr std::string_view AUDIO_CODEC_NAME = "opus";
 constexpr int32_t INITVAL = -1;
 constexpr int64_t TIME_US = 20000;
@@ -41,15 +41,16 @@ static const int32_t OPUS_DECODER_SAMPLE_RATE_TABLE[] = {
 namespace OHOS {
 namespace MediaAVCodec {
 AudioOpusDecoderPlugin::AudioOpusDecoderPlugin()
+    : PluginCodecPtr(nullptr), fbytes(nullptr), len(-1), codeData(nullptr), channels(-1), sampleRate(-1)
 {
     ret = 0;
-    void* handle = dlopen("/system/lib64/libav_codec_ext_base.z.so", 1);
+    handle = dlopen("libav_codec_ext_base.z.so", 1);
     if (!handle) {
         ret = -1;
         AVCODEC_LOGE("AudioOpusDecoderPlugin dlopen error, check .so file exist");
     }
-    OpusPluginClassCreateFun* PluginCodecCreate = (OpusPluginClassCreateFun *)dlsym(handle,
-        "OpusPluginClassDecoderCreate");
+    OpusPluginClassCreateFun *PluginCodecCreate =
+        (OpusPluginClassCreateFun *)dlsym(handle, "OpusPluginClassDecoderCreate");
     if (!PluginCodecCreate) {
         ret = -1;
         AVCODEC_LOGE("AudioOpusDecoderPlugin dlsym error, check .so file has this function");
@@ -208,8 +209,12 @@ int32_t AudioOpusDecoderPlugin::Release()
     if (ret != 0) {
         return AVCodecServiceErrCode::AVCS_ERR_UNKNOWN;
     }
-    free(PluginCodecPtr);
+    delete PluginCodecPtr;
     PluginCodecPtr = nullptr;
+    if (handle) {
+        dlclose(handle);
+        handle = nullptr;
+    }
     return AVCodecServiceErrCode::AVCS_ERR_OK;
 }
 

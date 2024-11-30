@@ -19,6 +19,10 @@
 #include <sys/stat.h>
 #include "common/log.h"
 
+namespace {
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = { LOG_CORE, LOG_DOMAIN_SYSTEM_PLAYER, "HiStreamer" };
+}
+
 namespace OHOS {
 namespace Media {
 namespace Plugins {
@@ -154,6 +158,12 @@ Status FileSourcePlugin::SetSource(std::shared_ptr<MediaSource> source)
 
 Status FileSourcePlugin::Read(std::shared_ptr<Buffer>& buffer, uint64_t offset, size_t expectedLen)
 {
+    return Read(0, buffer, offset, expectedLen);
+}
+
+Status FileSourcePlugin::Read(int32_t streamId, std::shared_ptr<Buffer>& buffer, uint64_t offset, size_t expectedLen)
+{
+    FALSE_RETURN_V_MSG_E(fp_ != nullptr, Status::ERROR_WRONG_STATE, "invalid fp");
     (void)offset;
     if (std::feof(fp_) || (fileSize_ == position_)) {
         MEDIA_LOG_W("It is the end of file!");
@@ -171,11 +181,19 @@ Status FileSourcePlugin::Read(std::shared_ptr<Buffer>& buffer, uint64_t offset, 
     } else {
         bufData = buffer->GetMemory();
     }
+    if (bufData == nullptr) {
+        return Status::ERROR_AGAIN;
+    }
     expectedLen = std::min(static_cast<size_t>(fileSize_ - position_), expectedLen);
     expectedLen = std::min(bufData->GetCapacity(), expectedLen);
 
     MEDIA_LOG_DD("buffer position " PUBLIC_LOG_U64 ", expectedLen " PUBLIC_LOG_ZU, position_, expectedLen);
-    auto size = std::fread(bufData->GetWritableAddr(expectedLen), sizeof(char), expectedLen, fp_);
+    auto bufDataAddr = bufData->GetWritableAddr(expectedLen);
+    if (bufDataAddr == nullptr) {
+        MEDIA_LOG_E("Read bufData GetWritableAddr fail");
+        return Status::ERROR_NO_MEMORY;
+    }
+    auto size = std::fread(bufDataAddr, sizeof(char), expectedLen, fp_);
     bufData->UpdateDataSize(size);
     position_ += bufData->GetSize();
     MEDIA_LOG_DD("position_: " PUBLIC_LOG_U64 ", readSize: " PUBLIC_LOG_ZU, position_, bufData->GetSize());
@@ -227,15 +245,14 @@ Status FileSourcePlugin::ParseFileName(const std::string& uri)
         MEDIA_LOG_E("uri is empty");
         return Status::ERROR_INVALID_PARAMETER;
     }
-    MEDIA_LOG_D("uri: " PUBLIC_LOG_S, uri.c_str());
     if (uri.find("file:/") != std::string::npos) {
         if (uri.find('#') != std::string::npos) {
-            MEDIA_LOG_E("Invalid file uri format: " PUBLIC_LOG_S, uri.c_str());
+            MEDIA_LOG_E("Invalid file uri format");
             return Status::ERROR_INVALID_PARAMETER;
         }
         auto pos = uri.find("file:");
         if (pos == std::string::npos) {
-            MEDIA_LOG_E("Invalid file uri format: " PUBLIC_LOG_S, uri.c_str());
+            MEDIA_LOG_E("Invalid file uri format");
             return Status::ERROR_INVALID_PARAMETER;
         }
         pos += 5; // 5: offset
@@ -245,7 +262,7 @@ Status FileSourcePlugin::ParseFileName(const std::string& uri)
             pos += 2;                 // 2: offset
             pos = uri.find('/', pos); // skip host name
             if (pos == std::string::npos) {
-                MEDIA_LOG_E("Invalid file uri format: " PUBLIC_LOG_S, uri.c_str());
+                MEDIA_LOG_E("Invalid file uri format");
                 return Status::ERROR_INVALID_PARAMETER;
             }
             pos++;

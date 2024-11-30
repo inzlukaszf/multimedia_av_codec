@@ -18,8 +18,7 @@
 
 #include "codeclistbase.h"
 #include "avcodec_errors.h"
-#include "v2_0/codec_types.h"
-#include "v2_0/icodec_component_manager.h"
+#include "codec_hdi.h"
 
 namespace OHOS::MediaAVCodec {
 class HCodecList : public CodecListBase {
@@ -27,17 +26,18 @@ public:
     HCodecList() = default;
     int32_t GetCapabilityList(std::vector<CapabilityData>& caps) override;
 private:
-    CapabilityData HdiCapToUserCap(const OHOS::HDI::Codec::V2_0::CodecCompCapability& hdiCap);
-    std::vector<int32_t> GetSupportedBitrateMode(const OHOS::HDI::Codec::V2_0::CodecVideoPortCap& hdiVideoCap);
-    std::vector<int32_t> GetSupportedFormat(const OHOS::HDI::Codec::V2_0::CodecVideoPortCap& hdiVideoCap);
-    std::map<ImgSize, Range> GetMeasuredFrameRate(const OHOS::HDI::Codec::V2_0::CodecVideoPortCap& hdiVideoCap);
-    void GetCodecProfileLevels(const OHOS::HDI::Codec::V2_0::CodecCompCapability& hdiCap, CapabilityData& userCap);
-    bool IsSupportedVideoCodec(const OHOS::HDI::Codec::V2_0::CodecCompCapability& hdiCap);
+    CapabilityData HdiCapToUserCap(const CodecHDI::CodecCompCapability& hdiCap);
+    std::vector<int32_t> GetSupportedBitrateMode(const CodecHDI::CodecVideoPortCap& hdiVideoCap);
+    std::vector<int32_t> GetSupportedFormat(const CodecHDI::CodecVideoPortCap& hdiVideoCap);
+    std::map<ImgSize, Range> GetMeasuredFrameRate(const CodecHDI::CodecVideoPortCap& hdiVideoCap);
+    void GetCodecProfileLevels(const CodecHDI::CodecCompCapability& hdiCap, CapabilityData& userCap);
+    bool IsSupportedVideoCodec(const CodecHDI::CodecCompCapability& hdiCap);
+    void GetSupportedFeatureParam(const CodecHDI::CodecVideoPortCap& hdiVideoCap,
+                                  CapabilityData& userCap);
 };
 
-sptr<OHOS::HDI::Codec::V2_0::ICodecComponentManager> GetManager();
-sptr<OHOS::HDI::Codec::V2_0::ICodecComponentManager> GetIpcManager();
-std::vector<OHOS::HDI::Codec::V2_0::CodecCompCapability> GetCapList();
+sptr<CodecHDI::ICodecComponentManager> GetManager(bool getCap, bool supportPassthrough = false);
+std::vector<CodecHDI::CodecCompCapability> GetCapList();
 }
 
 #endif

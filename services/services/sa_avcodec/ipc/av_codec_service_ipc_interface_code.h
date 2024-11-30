@@ -30,6 +30,7 @@ enum class CodecServiceInterfaceCode {
     SET_LISTENER_OBJ = 0,
     INIT,
     CONFIGURE,
+    PREPARE,
     START,
     STOP,
     FLUSH,
@@ -47,7 +48,9 @@ enum class CodecServiceInterfaceCode {
     DEQUEUE_OUTPUT_BUFFER,
     GET_INPUT_FORMAT,
     DESTROY_STUB,
-    SET_DECRYPT_CONFIG
+    SET_DECRYPT_CONFIG,
+    RENDER_OUTPUT_BUFFER_AT_TIME,
+    SET_CUSTOM_BUFFER
 };
 
 enum class AVCodecListServiceInterfaceCode {

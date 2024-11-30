@@ -19,7 +19,7 @@
 #include "avcodec_info.h"
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AVCodecInfo"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_FRAMEWORK, "AVCodecInfo"};
 constexpr int32_t FRAME_RATE_30 = 30;
 constexpr int32_t BLOCK_SIZE_MIN = 2;
 constexpr int32_t BASE_BLOCK_PER_FRAME = 99;
@@ -36,6 +36,8 @@ const std::map<int32_t, LevelParams> AVC_PARAMS_MAP = {
     {AVC_LEVEL_32, LevelParams(216000, 5120)}, {AVC_LEVEL_4, LevelParams(245760, 8192)},
     {AVC_LEVEL_41, LevelParams(245760, 8192)}, {AVC_LEVEL_42, LevelParams(522240, 8704)},
     {AVC_LEVEL_5, LevelParams(589824, 22080)}, {AVC_LEVEL_51, LevelParams(983040, 36864)},
+    {AVC_LEVEL_52, LevelParams(2073600, 36864)}, {AVC_LEVEL_6, LevelParams(4177920, 139264)},
+    {AVC_LEVEL_61, LevelParams(8355840, 139264)}, {AVC_LEVEL_62, LevelParams(16711680, 139264)},
 };
 
 const std::map<int32_t, LevelParams> MPEG2_SIMPLE_PARAMS_MAP = {
@@ -170,7 +172,9 @@ Range VideoCaps::GetVideoWidthRangeForHeight(int32_t height)
         }
         Range horizontalBlockNum = horizontalBlockRange_.Intersect(
             Range(blockPerFrameRange_.minVal / verticalBlockNum, blockPerFrameRange_.maxVal / verticalBlockNum));
-        ret = ret.Intersect(Range(horizontalBlockNum.minVal * blockWidth_, horizontalBlockNum.maxVal * blockWidth_));
+        ret = ret.Intersect(
+            Range((horizontalBlockNum.minVal - 1) * blockWidth_ + data_->alignment.width,
+                horizontalBlockNum.maxVal * blockWidth_));
     }
     return ret;
 }
@@ -189,7 +193,9 @@ Range VideoCaps::GetVideoHeightRangeForWidth(int32_t width)
         }
         Range verticalBlockNum = verticalBlockRange_.Intersect(
             Range(blockPerFrameRange_.minVal / horizontalBlockNum, blockPerFrameRange_.maxVal / horizontalBlockNum));
-        ret = ret.Intersect(Range(verticalBlockNum.minVal * blockHeight_, verticalBlockNum.maxVal * blockHeight_));
+        ret = ret.Intersect(
+            Range((verticalBlockNum.minVal - 1) * blockHeight_ + data_->alignment.height,
+                verticalBlockNum.maxVal * blockHeight_));
     }
     return ret;
 }
@@ -221,7 +227,8 @@ Range VideoCaps::GetSupportedFrameRatesFor(int32_t width, int32_t height)
 
 void VideoCaps::LoadLevelParams()
 {
-    if (this->GetCodecInfo()->IsSoftwareOnly()) {
+    std::shared_ptr<AVCodecInfo> codecInfo = this->GetCodecInfo();
+    if (codecInfo == nullptr || codecInfo->IsSoftwareOnly()) {
         return;
     }
     if (data_->mimeType == CodecMimeType::VIDEO_AVC) {
@@ -324,6 +331,12 @@ void VideoCaps::InitParams()
     }
     if (data_->blockPerFrame.minVal == 0 || data_->blockPerFrame.maxVal == 0) {
         data_->blockPerFrame = Range(1, INT32_MAX);
+    }
+    if (data_->supportSwapWidthHeight) {
+        Range side = Range(std::min(data_->width.minVal, data_->height.minVal),
+                           std::max(data_->width.maxVal, data_->height.maxVal));
+        data_->width = side;
+        data_->height = side;
     }
     if (data_->width.minVal == 0 || data_->width.maxVal == 0) {
         data_->width = Range(1, INT32_MAX);
@@ -607,6 +620,30 @@ bool AVCodecInfo::IsVendor()
 std::map<int32_t, std::vector<int32_t>> AVCodecInfo::GetSupportedLevelsForProfile()
 {
     return data_->profileLevelsMap;
+}
+
+bool AVCodecInfo::IsFeatureValid(AVCapabilityFeature feature)
+{
+    return feature >= AVCapabilityFeature::VIDEO_ENCODER_TEMPORAL_SCALABILITY &&
+        feature < AVCapabilityFeature::MAX_VALUE;
+}
+
+bool AVCodecInfo::IsFeatureSupported(AVCapabilityFeature feature)
+{
+    CHECK_AND_RETURN_RET_LOG(IsFeatureValid(feature), false,
+        "Varified feature failed: feature %{public}d is invalid", feature);
+    return data_->featuresMap.count(static_cast<int32_t>(feature)) != 0;
+}
+
+int32_t AVCodecInfo::GetFeatureProperties(AVCapabilityFeature feature, Format &format)
+{
+    CHECK_AND_RETURN_RET_LOG(IsFeatureValid(feature), AVCS_ERR_INVALID_VAL,
+        "Get feature properties failed: invalid feature %{public}d", feature);
+    auto itr = data_->featuresMap.find(static_cast<int32_t>(feature));
+    CHECK_AND_RETURN_RET_LOG(itr != data_->featuresMap.end(), AVCS_ERR_INVALID_OPERATION,
+        "Get feature properties failed: feature %{public}d is not supported", feature);
+    format = itr->second;
+    return AVCS_ERR_OK;
 }
 } // namespace MediaAVCodec
 } // namespace OHOS

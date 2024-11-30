@@ -19,7 +19,7 @@
 #include "ffmpeg_converter.h"
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AvCodec-AudioResample"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_AUDIO, "AvCodec-AudioResample"};
 } // namespace
 
 namespace OHOS {
@@ -43,14 +43,18 @@ int32_t AudioResample::Init(const ResamplePara& resamplePara)
 int32_t AudioResample::InitSwrContext(const ResamplePara& resamplePara)
 {
     resamplePara_ = resamplePara;
-    auto swrContext = swr_alloc();
+    SwrContext *swrContext = swr_alloc();
     if (swrContext == nullptr) {
         AVCODEC_LOGE("cannot allocate swr context");
         return AVCodecServiceErrCode::AVCS_ERR_NO_MEMORY;
     }
-    swrContext = swr_alloc_set_opts(swrContext, resamplePara_.channelLayout, resamplePara_.destFmt,
-                                    resamplePara_.sampleRate, resamplePara_.channelLayout,
-                                    resamplePara_.srcFmt, resamplePara_.sampleRate, 0, nullptr);
+    int error =
+        swr_alloc_set_opts2(&swrContext, &resamplePara_.channelLayout, resamplePara_.destFmt, resamplePara_.sampleRate,
+                            &resamplePara_.channelLayout, resamplePara_.srcFmt, resamplePara_.sampleRate, 0, nullptr);
+    if (error < 0) {
+        AVCODEC_LOGE("swr init error");
+        return AVCodecServiceErrCode::AVCS_ERR_UNKNOWN;
+    }
     if (swr_init(swrContext) != 0) {
         AVCODEC_LOGE("swr init error");
         return AVCodecServiceErrCode::AVCS_ERR_UNKNOWN;
@@ -74,7 +78,7 @@ int32_t AudioResample::Convert(const uint8_t* srcBuffer, const size_t srcLength,
             tmpInput[i] = tmpInput[i-1] + lineSize;
         }
     }
-    auto samples = lineSize / av_get_bytes_per_sample(resamplePara_.srcFmt);
+    int32_t samples = lineSize / av_get_bytes_per_sample(resamplePara_.srcFmt);
     auto res = swr_convert(swrCtx_.get(), resampleChannelAddr_.data(), resamplePara_.destSamplesPerFrame,
                            tmpInput.data(), samples);
     if (res < 0) {
@@ -82,7 +86,7 @@ int32_t AudioResample::Convert(const uint8_t* srcBuffer, const size_t srcLength,
         destLength = 0;
     } else {
         destBuffer = resampleCache_.data();
-        destLength = res * av_get_bytes_per_sample(resamplePara_.destFmt) * resamplePara_.channels;
+        destLength = static_cast<size_t>(res * av_get_bytes_per_sample(resamplePara_.destFmt) * resamplePara_.channels);
     }
     return AVCodecServiceErrCode::AVCS_ERR_OK;
 }
@@ -93,8 +97,23 @@ int32_t AudioResample::ConvertFrame(AVFrame *outputFrame, const AVFrame *inputFr
         AVCODEC_LOGE("Frame null pointer");
         return AVCodecServiceErrCode::AVCS_ERR_NO_MEMORY;
     }
+    int planar = av_sample_fmt_is_planar(static_cast<AVSampleFormat>(inputFrame->format));
+    if (planar) {
+        for (auto i = 0; i < inputFrame->channels; i++) {
+            if (inputFrame->extended_data[i] == nullptr) {
+                AVCODEC_LOGE("this is a planar audio, inputFrame->channels: %{public}d, "
+                             "but inputFrame->extended_data[%{public}d] is nullptr", inputFrame->channels, i);
+                return AVCodecServiceErrCode::AVCS_ERR_NO_MEMORY;
+            }
+        }
+    } else {
+        if (inputFrame->extended_data[0] == nullptr) {
+            AVCODEC_LOGE("inputFrame->extended_data[0] is nullptr");
+            return AVCodecServiceErrCode::AVCS_ERR_NO_MEMORY;
+        }
+    }
 
-    outputFrame->channel_layout = resamplePara_.channelLayout;
+    outputFrame->ch_layout = resamplePara_.channelLayout;
     outputFrame->format = resamplePara_.destFmt;
     outputFrame->sample_rate = resamplePara_.sampleRate;
 

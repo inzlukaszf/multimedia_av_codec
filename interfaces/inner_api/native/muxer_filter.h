@@ -33,16 +33,18 @@ public:
     explicit MuxerFilter(std::string name, FilterType type);
     ~MuxerFilter() override;
     Status SetOutputParameter(int32_t appUid, int32_t appPid, int32_t fd, int32_t format);
+    Status SetTransCoderMode();
+    int64_t GetCurrentPtsMs();
     void Init(const std::shared_ptr<EventReceiver> &receiver, const std::shared_ptr<FilterCallback> &callback) override;
-    void SetLogTag(std::string logTag);
-    Status Prepare() override;
-    Status Start() override;
-    Status Pause() override;
-    Status Resume() override;
-    Status Stop() override;
-    Status Flush() override;
-    Status Release() override;
+    Status DoPrepare() override;
+    Status DoStart() override;
+    Status DoPause() override;
+    Status DoResume() override;
+    Status DoStop() override;
+    Status DoFlush() override;
+    Status DoRelease() override;
     void SetParameter(const std::shared_ptr<Meta> &parameter) override;
+    void SetUserMeta(const std::shared_ptr<Meta> &userMeta);
     void GetParameter(std::shared_ptr<Meta> &parameter) override;
     Status LinkNext(const std::shared_ptr<Filter> &nextFilter, StreamType outType) override;
     Status UpdateNext(const std::shared_ptr<Filter> &nextFilter, StreamType outType) override;
@@ -54,7 +56,13 @@ public:
         const std::shared_ptr<FilterLinkCallback> &callback) override;
     Status OnUnLinked(StreamType inType, const std::shared_ptr<FilterLinkCallback>& callback) override;
     void OnBufferFilled(std::shared_ptr<AVBuffer> &inputBuffer, int32_t trackIndex,
-        sptr<AVBufferQueueProducer> inputBufferQueue);
+        StreamType streamType, sptr<AVBufferQueueProducer> inputBufferQueue);
+    void OnTransCoderBufferFilled(std::shared_ptr<AVBuffer> &inputBuffer, int32_t trackIndex,
+        StreamType streamType, sptr<AVBufferQueueProducer> inputBufferQueue);
+    void SetFaultEvent(const std::string &errMsg);
+    void SetFaultEvent(const std::string &errMsg, int32_t ret);
+    const std::string &GetContainerFormat(Plugins::OutputFormat format);
+    void SetCallingInfo(int32_t appUid, int32_t appPid, const std::string &bundleName, uint64_t instanceId);
 
 private:
     std::string name_;
@@ -67,9 +75,26 @@ private:
     int32_t preFilterCount_{0};
     int32_t startCount_{0};
     int32_t stopCount_{0};
+    int32_t eosCount_{0};
     std::map<int32_t, int64_t> bufferPtsMap_;
+    std::map<std::string, int32_t> trackIndexMap_;
+    std::string videoCodecMimeType_;
+    std::string audioCodecMimeType_;
+    std::string metaDataCodecMimeType_;
+    std::string bundleName_;
+    uint64_t instanceId_{0};
+    int32_t appUid_ {0};
+    int32_t appPid_ {0};
+    Plugins::OutputFormat outputFormat_{Plugins::OutputFormat::DEFAULT};
 
-    std::string logTag_ = "";
+    int64_t lastVideoPts_{0};
+    int64_t lastAudioPts_{0};
+    bool videoIsEos{false};
+    bool audioIsEos{false};
+    bool isTransCoderMode{false};
+ 
+    std::mutex stopMutex_;
+    std::condition_variable stopCondition_;
 };
 } // namespace Pipeline
 } // namespace MEDIA

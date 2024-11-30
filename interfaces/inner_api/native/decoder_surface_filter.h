@@ -18,6 +18,7 @@
 
 #include <atomic>
 #include "plugin/plugin_time.h"
+#include "avcodec_common.h"
 #include "surface/surface.h"
 #include "osal/task/condition_variable.h"
 #include "osal/task/mutex.h"
@@ -30,6 +31,8 @@
 #include "filter/filter.h"
 #include "media_sync_manager.h"
 #include "foundation/multimedia/drm_framework/services/drm_service/ipc/i_keysession_service.h"
+#include "common/media_core.h"
+#include "common/seek_callback.h"
 
 namespace OHOS {
 namespace Media {
@@ -43,13 +46,20 @@ public:
     void Init(const std::shared_ptr<EventReceiver> &receiver,
         const std::shared_ptr<FilterCallback> &callback) override;
     Status Configure(const std::shared_ptr<Meta> &parameter);
-    Status Prepare() override;
-    Status Start() override;
-    Status Pause() override;
-    Status Resume() override;
-    Status Stop() override;
-    Status Flush() override;
-    Status Release() override;
+    Status DoInitAfterLink() override;
+    Status DoPrepare() override;
+    Status DoPrepareFrame(bool renderFirstFrame) override;
+    Status WaitPrepareFrame() override;
+    Status DoStart() override;
+    Status DoPause() override;
+    Status DoResume() override;
+    Status DoResumeDragging() override;
+    Status DoStop() override;
+    Status DoFlush() override;
+    Status DoRelease() override;
+    Status DoSetPlayRange(int64_t start, int64_t end) override;
+    Status DoProcessInputBuffer(int recvArg, bool dropFrame) override;
+    Status DoProcessOutputBuffer(int recvArg, bool dropFrame, bool byIdx, uint32_t idx, int64_t renderTime) override;
 
     void SetParameter(const std::shared_ptr<Meta>& parameter) override;
     void GetParameter(std::shared_ptr<Meta>& parameter) override;
@@ -68,8 +78,26 @@ public:
     Status SetDecryptConfig(const sptr<DrmStandard::IMediaKeySessionService> &keySessionProxy,
         bool svp);
 
+    void OnError(MediaAVCodec::AVCodecErrorType errorType, int32_t errorCode);
+
     sptr<AVBufferQueueProducer> GetInputBufferQueue();
     void SetSyncCenter(std::shared_ptr<MediaSyncManager> syncCenter);
+    void SetSeekTime(int64_t seekTimeUs);
+    void ResetSeekInfo();
+    Status HandleInputBuffer();
+    void OnDumpInfo(int32_t fd);
+
+    void SetCallingInfo(int32_t appUid, int32_t appPid, std::string bundleName, uint64_t instanceId);
+
+    Status GetLagInfo(int32_t& lagTimes, int32_t& maxLagDuration, int32_t& avgLagDuration);
+    void SetBitrateStart();
+    void OnOutputFormatChanged(const MediaAVCodec::Format &format);
+    Status StartSeekContinous();
+    Status StopSeekContinous();
+    void RegisterVideoFrameReadyCallback(std::shared_ptr<VideoFrameReadyCallback> &callback);
+    void DeregisterVideoFrameReadyCallback();
+    int32_t GetDecRateUpperLimit();
+    void ConsumeVideoFrame(uint32_t index, bool isRender, int64_t renderTimeNs = 0L);
 
 protected:
     Status OnLinked(StreamType inType, const std::shared_ptr<Meta> &meta,
@@ -79,7 +107,13 @@ protected:
     Status OnUnLinked(StreamType inType, const std::shared_ptr<FilterLinkCallback>& callback) override;
 
 private:
+    void RenderLoop();
     std::string GetCodecName(std::string mimeType);
+    int64_t CalculateNextRender(uint32_t index, std::shared_ptr<AVBuffer> &outputBuffer);
+    void ParseDecodeRateLimit();
+    void RenderNextOutput(uint32_t index, std::shared_ptr<AVBuffer> &outputBuffer);
+    Status ReleaseOutputBuffer(int index, bool render, const std::shared_ptr<AVBuffer> &outBuffer, int64_t renderTime);
+    bool AcquireNextRenderBuffer(bool byIdx, uint32_t &index, std::shared_ptr<AVBuffer> &outBuffer);
 
     std::string name_;
     FilterType filterType_;
@@ -97,6 +131,8 @@ private:
 
     std::atomic<uint64_t> renderFrameCnt_{0};
     std::atomic<uint64_t> discardFrameCnt_{0};
+    std::atomic<bool> isSeek_{false};
+    int64_t seekTimeUs_{0};
 
     bool refreshTotalPauseTime_{false};
     int64_t latestBufferTime_{HST_TIME_NONE};
@@ -108,6 +144,34 @@ private:
     sptr<DrmStandard::IMediaKeySessionService> keySessionServiceProxy_;
     bool svpFlag_ = false;
     std::atomic<bool> isPaused_{false};
+    std::list<std::pair<int, std::shared_ptr<AVBuffer>>> outputBuffers_;
+    std::mutex mutex_;
+    std::unique_ptr<std::thread> readThread_ = nullptr;
+    std::atomic<bool> isThreadExit_ = true;
+    std::condition_variable condBufferAvailable_;
+
+    Mutex firstFrameMutex_{};
+    ConditionVariable firstFrameCond_;
+    std::atomic<bool> doPrepareFrame_{false};
+    bool renderFirstFrame_{false};
+    std::atomic<bool> isRenderStarted_{false};
+    Mutex formatChangeMutex_{};
+    int32_t rateUpperLimit_{0};
+
+    int32_t appUid_ = -1;
+    int32_t appPid_ = -1;
+    std::string bundleName_;
+    uint64_t instanceId_ = 0;
+    int64_t playRangeStartTime_ = -1;
+    int64_t playRangeEndTime_ = -1;
+
+    std::atomic<int32_t> bitrateChange_{0};
+    int32_t surfaceWidth_{0};
+    int32_t surfaceHeight_{0};
+
+    std::shared_ptr<VideoFrameReadyCallback> videoFrameReadyCallback_;
+    bool isInSeekContinous_{false};
+    std::unordered_map<uint32_t, std::shared_ptr<AVBuffer>> outputBufferMap_;
 };
 } // namespace Pipeline
 } // namespace Media

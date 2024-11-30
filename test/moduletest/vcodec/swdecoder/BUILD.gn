@@ -51,6 +51,7 @@ swdecoder_moduletest_cflags = [
 
 ##################################################################################################################
 ohos_unittest("swdecoder_native_module_test") {
+  sanitize = av_codec_test_sanitize
   module_out_path = module_output_path
   include_dirs = swdecoder_moduletest_native_include_dirs
   include_dirs += [ "./" ]
@@ -61,9 +62,10 @@ ohos_unittest("swdecoder_native_module_test") {
     sources = [
       "./src/InnerAPI/api_test.cpp",
       "./src/InnerAPI/videodec_ndk_inner_sample.cpp",
-
-      #"./src/api_test.cpp",
+      "./src/api_test.cpp",
       "./src/func_test.cpp",
+
+      #"./src/reli_test.cpp",
 
       #"./src/NativeAPI/perf_test.cpp",
       #"./src/NativeAPI/reli_test.cpp",
@@ -71,6 +73,7 @@ ohos_unittest("swdecoder_native_module_test") {
 
       #"./src/compatibility_test.cpp",
       "./src/videodec_ndk_sample.cpp",
+      "./src/videodec_api11_sample.cpp",
     ]
   }
 
@@ -87,8 +90,8 @@ ohos_unittest("swdecoder_native_module_test") {
     "graphic_surface:sync_fence",
     "hilog:libhilog",
     "ipc:ipc_core",
-    "media_foundation:capi_packages",
     "media_foundation:media_foundation",
+    "media_foundation:native_media_core",
     "window_manager:libwm",
   ]
 

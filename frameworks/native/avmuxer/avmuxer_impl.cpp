@@ -22,7 +22,7 @@
 #include "avcodec_errors.h"
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AVMuxerImpl"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_MUXER, "AVMuxerImpl"};
 }
 
 namespace OHOS {
@@ -32,7 +32,8 @@ std::shared_ptr<AVMuxer> AVMuxerFactory::CreateAVMuxer(int32_t fd, Plugins::Outp
     AVCODEC_SYNC_TRACE;
     CHECK_AND_RETURN_RET_LOG(fd >= 0, nullptr, "fd %{public}d is error!", fd);
     uint32_t fdPermission = static_cast<uint32_t>(fcntl(fd, F_GETFL, 0));
-    CHECK_AND_RETURN_RET_LOG((fdPermission & O_RDWR) == O_RDWR, nullptr, "No permission to read and write fd");
+    CHECK_AND_RETURN_RET_LOG((fdPermission & O_WRONLY) == O_WRONLY || (fdPermission & O_RDWR) == O_RDWR,
+        nullptr, "No permission to write fd.");
     CHECK_AND_RETURN_RET_LOG(lseek(fd, 0, SEEK_CUR) != -1, nullptr, "The fd is not seekable");
 
     std::shared_ptr<AVMuxerImpl> impl = std::make_shared<AVMuxerImpl>();
@@ -55,7 +56,7 @@ AVMuxerImpl::~AVMuxerImpl()
 int32_t AVMuxerImpl::Init(int32_t fd, Plugins::OutputFormat format)
 {
     AVCODEC_SYNC_TRACE;
-    muxerEngine_ = std::make_shared<Media::MediaMuxer>(getuid(), getpid());
+    muxerEngine_ = std::make_shared<Media::MediaMuxer>(getuid(), getprocpid());
     CHECK_AND_RETURN_RET_LOG(muxerEngine_ != nullptr, AVCS_ERR_NO_MEMORY, "Create AVMuxer Engine failed");
     return StatusConvert(muxerEngine_->Init(fd, format));
 }
@@ -66,6 +67,14 @@ int32_t AVMuxerImpl::SetParameter(const std::shared_ptr<Meta> &param)
     CHECK_AND_RETURN_RET_LOG(muxerEngine_ != nullptr, AVCS_ERR_INVALID_OPERATION, "AVMuxer Engine does not exist");
     CHECK_AND_RETURN_RET_LOG(param != nullptr, AVCS_ERR_INVALID_VAL, "Invalid parameter");
     return StatusConvert(muxerEngine_->SetParameter(param));
+}
+
+int32_t AVMuxerImpl::SetUserMeta(const std::shared_ptr<Meta> &userMeta)
+{
+    AVCODEC_SYNC_TRACE;
+    CHECK_AND_RETURN_RET_LOG(muxerEngine_ != nullptr, AVCS_ERR_INVALID_OPERATION, "AVMuxer Engine does not exist");
+    CHECK_AND_RETURN_RET_LOG(userMeta != nullptr, AVCS_ERR_INVALID_VAL, "Invalid parameter");
+    return StatusConvert(muxerEngine_->SetUserMeta(userMeta));
 }
 
 int32_t AVMuxerImpl::AddTrack(int32_t &trackIndex, const std::shared_ptr<Meta> &trackDesc)

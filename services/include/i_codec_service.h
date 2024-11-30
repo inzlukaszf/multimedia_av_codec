@@ -23,6 +23,7 @@
 #include "refbase.h"
 #include "surface.h"
 #include "meta/meta.h"
+#include "meta/format.h"
 #include "buffer/avbuffer.h"
 #include "buffer/avbuffer_queue.h"
 #include "buffer/avbuffer_queue_consumer.h"
@@ -37,8 +38,9 @@ public:
     virtual ~ICodecService() = default;
 
     virtual int32_t Init(AVCodecType type, bool isMimeType,
-        const std::string &name, API_VERSION apiVersion = API_VERSION::API_VERSION_10) = 0;
+        const std::string &name, Media::Meta &callerInfo, API_VERSION apiVersion = API_VERSION::API_VERSION_10) = 0;
     virtual int32_t Configure(const Format &format) = 0;
+    virtual int32_t SetCustomBuffer(std::shared_ptr<AVBuffer> buffer) = 0;
     virtual int32_t Start() = 0;
     virtual int32_t Stop() = 0;
     virtual int32_t Flush() = 0;
@@ -49,11 +51,15 @@ public:
     virtual int32_t SetOutputSurface(sptr<Surface> surface) = 0;
     virtual int32_t QueueInputBuffer(uint32_t index, AVCodecBufferInfo info, AVCodecBufferFlag flag) = 0;
     virtual int32_t QueueInputBuffer(uint32_t index) = 0;
+    virtual int32_t QueueInputParameter(uint32_t index) = 0;
     virtual int32_t GetOutputFormat(Format &format) = 0;
     virtual int32_t ReleaseOutputBuffer(uint32_t index, bool render = false) = 0;
+    virtual int32_t RenderOutputBufferAtTime(uint32_t index, int64_t renderTimestampNs) = 0;
     virtual int32_t SetParameter(const Format &format) = 0;
     virtual int32_t SetCallback(const std::shared_ptr<AVCodecCallback> &callback) = 0;
     virtual int32_t SetCallback(const std::shared_ptr<MediaCodecCallback> &callback) = 0;
+    virtual int32_t SetCallback(const std::shared_ptr<MediaCodecParameterCallback> &callback) = 0;
+    virtual int32_t SetCallback(const std::shared_ptr<MediaCodecParameterWithAttrCallback> &callback) = 0;
     virtual int32_t GetInputFormat(Format &format) = 0;
     virtual int32_t SetDecryptConfig(const sptr<DrmStandard::IMediaKeySessionService> &keySession,
         const bool svpFlag)
@@ -103,9 +109,18 @@ public:
     {
         return;
     }
-    virtual bool GetStatus()
+    virtual bool CheckRunning()
     {
         return false;
+    }
+
+    /* API12 audio codec interface for drm */
+    virtual int32_t SetAudioDecryptionConfig(const sptr<DrmStandard::IMediaKeySessionService> &keySession,
+        const bool svpFlag)
+    {
+        (void)keySession;
+        (void)svpFlag;
+        return AVCODEC_ERROR_EXTEND_START;
     }
 };
 } // namespace MediaAVCodec

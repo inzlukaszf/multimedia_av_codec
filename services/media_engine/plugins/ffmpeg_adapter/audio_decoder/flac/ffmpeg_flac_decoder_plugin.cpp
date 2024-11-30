@@ -24,13 +24,13 @@ using namespace OHOS::Media;
 using namespace OHOS::Media::Plugins;
 using namespace Ffmpeg;
 
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AvCodec-FFmpegFlacDecoderPlugin"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_AUDIO, "AvCodec-FFmpegFlacDecoderPlugin"};
 constexpr int32_t MAX_BITS_PER_SAMPLE = 4;
 constexpr int32_t SAMPLES = 9216;
 constexpr int32_t MIN_CHANNELS = 1;
 constexpr int32_t MAX_CHANNELS = 8;
 static const int32_t FLAC_DECODER_SAMPLE_RATE_TABLE[] = {
-    8000, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000,
+    8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000, 192000,
 };
 } // namespace
 

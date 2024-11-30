@@ -15,14 +15,9 @@
 
 #include "codec_service_proxy.h"
 #include "avcodec_errors.h"
-#include "avcodec_log.h"
 #include "avcodec_parcel.h"
 #include "avsharedmemory_ipc.h"
 #include "buffer_client_producer.h"
-
-namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "CodecServiceProxy"};
-}
 
 namespace OHOS {
 namespace MediaAVCodec {
@@ -59,7 +54,15 @@ void CodecServiceProxy::SetListener(const sptr<CodecListenerStub> &listener)
     listener_ = listener;
 }
 
-int32_t CodecServiceProxy::Init(AVCodecType type, bool isMimeType, const std::string &name)
+void CodecServiceProxy::InitLabel(const uint64_t uid)
+{
+    tag_ = "ServiceProxy[";
+    tag_ += std::to_string(uid) + "]";
+    auto &label = const_cast<OHOS::HiviewDFX::HiLogLabel &>(LABEL);
+    label.tag = tag_.c_str();
+}
+
+int32_t CodecServiceProxy::Init(AVCodecType type, bool isMimeType, const std::string &name, Meta &callerInfo)
 {
     MessageParcel data;
     MessageParcel reply;
@@ -68,6 +71,7 @@ int32_t CodecServiceProxy::Init(AVCodecType type, bool isMimeType, const std::st
     bool token = data.WriteInterfaceToken(CodecServiceProxy::GetDescriptor());
     CHECK_AND_RETURN_RET_LOG(token, AVCS_ERR_INVALID_OPERATION, "Write descriptor failed!");
 
+    callerInfo.ToParcel(data);
     data.WriteInt32(static_cast<int32_t>(type));
     data.WriteBool(isMimeType);
     data.WriteString(name);
@@ -89,6 +93,39 @@ int32_t CodecServiceProxy::Configure(const Format &format)
     (void)AVCodecParcel::Marshalling(data, format);
     int32_t ret =
         Remote()->SendRequest(static_cast<uint32_t>(CodecServiceInterfaceCode::CONFIGURE), data, reply, option);
+    CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, AVCS_ERR_INVALID_OPERATION, "Send request failed");
+
+    return reply.ReadInt32();
+}
+
+int32_t CodecServiceProxy::Prepare()
+{
+    MessageParcel data;
+    MessageParcel reply;
+    MessageOption option;
+
+    bool token = data.WriteInterfaceToken(CodecServiceProxy::GetDescriptor());
+    CHECK_AND_RETURN_RET_LOG(token, AVCS_ERR_INVALID_OPERATION, "Write descriptor failed!");
+
+    int32_t ret = Remote()->SendRequest(static_cast<uint32_t>(CodecServiceInterfaceCode::PREPARE), data, reply, option);
+    CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, AVCS_ERR_INVALID_OPERATION, "Send request failed");
+
+    return reply.ReadInt32();
+}
+
+int32_t CodecServiceProxy::SetCustomBuffer(std::shared_ptr<AVBuffer> buffer)
+{
+    MessageParcel data;
+    MessageParcel reply;
+    MessageOption option;
+
+    bool token = data.WriteInterfaceToken(CodecServiceProxy::GetDescriptor());
+    CHECK_AND_RETURN_RET_LOG(token, AVCS_ERR_INVALID_OPERATION, "Write descriptor failed!");
+
+    token = buffer->WriteToMessageParcel(data);
+    CHECK_AND_RETURN_RET_LOG(token, AVCS_ERR_INVALID_OPERATION, "Write to messageParcel failed!");
+    int32_t ret =
+        Remote()->SendRequest(static_cast<uint32_t>(CodecServiceInterfaceCode::SET_CUSTOM_BUFFER), data, reply, option);
     CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, AVCS_ERR_INVALID_OPERATION, "Send request failed");
 
     return reply.ReadInt32();
@@ -121,6 +158,7 @@ int32_t CodecServiceProxy::Stop()
     int32_t ret = Remote()->SendRequest(static_cast<uint32_t>(CodecServiceInterfaceCode::STOP), data, reply, option);
     CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, AVCS_ERR_INVALID_OPERATION, "Send request failed");
 
+    static_cast<CodecListenerStub *>(listener_.GetRefPtr())->ClearListenerCache();
     return reply.ReadInt32();
 }
 
@@ -135,7 +173,7 @@ int32_t CodecServiceProxy::Flush()
 
     int32_t ret = Remote()->SendRequest(static_cast<uint32_t>(CodecServiceInterfaceCode::FLUSH), data, reply, option);
     CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, AVCS_ERR_INVALID_OPERATION, "Send request failed");
-
+    static_cast<CodecListenerStub *>(listener_.GetRefPtr())->FlushListenerCache();
     return reply.ReadInt32();
 }
 
@@ -282,6 +320,27 @@ int32_t CodecServiceProxy::QueueInputBuffer(uint32_t index)
     return reply.ReadInt32();
 }
 
+int32_t CodecServiceProxy::QueueInputParameter(uint32_t index)
+{
+    MessageParcel data;
+    MessageParcel reply;
+    MessageOption option;
+
+    bool token = data.WriteInterfaceToken(CodecServiceProxy::GetDescriptor());
+    CHECK_AND_RETURN_RET_LOG(token, AVCS_ERR_INVALID_OPERATION, "Write descriptor failed!");
+
+    data.WriteUint32(index);
+
+    bool retWrite = static_cast<CodecListenerStub *>(listener_.GetRefPtr())->WriteInputParameterToParcel(index, data);
+    CHECK_AND_RETURN_RET_LOG(retWrite == true, AVCS_ERR_INVALID_OPERATION, "Listener write data failed");
+
+    int32_t ret = Remote()->SendRequest(static_cast<uint32_t>(CodecServiceInterfaceCode::QUEUE_INPUT_BUFFER), data,
+                                        reply, option);
+    CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, AVCS_ERR_INVALID_OPERATION, "Send request failed");
+
+    return reply.ReadInt32();
+}
+
 int32_t CodecServiceProxy::GetOutputFormat(Format &format)
 {
     MessageParcel data;
@@ -310,8 +369,27 @@ int32_t CodecServiceProxy::ReleaseOutputBuffer(uint32_t index, bool render)
 
     data.WriteUint32(index);
     data.WriteBool(render);
+    static_cast<CodecListenerStub *>(listener_.GetRefPtr())->WriteOutputBufferToParcel(index, data);
     int32_t ret = Remote()->SendRequest(static_cast<uint32_t>(CodecServiceInterfaceCode::RELEASE_OUTPUT_BUFFER), data,
                                         reply, option);
+    CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, AVCS_ERR_INVALID_OPERATION, "Send request failed");
+
+    return reply.ReadInt32();
+}
+
+int32_t CodecServiceProxy::RenderOutputBufferAtTime(uint32_t index, int64_t renderTimestampNs)
+{
+    MessageParcel data;
+    MessageParcel reply;
+    MessageOption option;
+
+    bool token = data.WriteInterfaceToken(CodecServiceProxy::GetDescriptor());
+    CHECK_AND_RETURN_RET_LOG(token, AVCS_ERR_INVALID_OPERATION, "Write descriptor failed!");
+
+    data.WriteUint32(index);
+    data.WriteInt64(renderTimestampNs);
+    int32_t ret = Remote()->SendRequest(static_cast<uint32_t>(CodecServiceInterfaceCode::RENDER_OUTPUT_BUFFER_AT_TIME),
+                                        data, reply, option);
     CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, AVCS_ERR_INVALID_OPERATION, "Send request failed");
 
     return reply.ReadInt32();
@@ -370,7 +448,7 @@ int32_t CodecServiceProxy::DestroyStub()
 
 #ifdef SUPPORT_DRM
 int32_t CodecServiceProxy::SetDecryptConfig(const sptr<DrmStandard::IMediaKeySessionService> &keySession,
-    const bool svpFlag)
+                                            const bool svpFlag)
 {
     MessageParcel data;
     MessageParcel reply;
@@ -386,9 +464,8 @@ int32_t CodecServiceProxy::SetDecryptConfig(const sptr<DrmStandard::IMediaKeySes
     CHECK_AND_RETURN_RET_LOG(status, AVCS_ERR_INVALID_OPERATION, "SetDecryptConfig WriteRemoteObject failed");
     data.WriteBool(svpFlag);
 
-    int32_t ret =
-        Remote()->SendRequest(static_cast<uint32_t>(CodecServiceInterfaceCode::SET_DECRYPT_CONFIG),
-            data, reply, option);
+    int32_t ret = Remote()->SendRequest(static_cast<uint32_t>(CodecServiceInterfaceCode::SET_DECRYPT_CONFIG), data,
+                                        reply, option);
     CHECK_AND_RETURN_RET_LOG(ret == AVCS_ERR_OK, AVCS_ERR_INVALID_OPERATION, "Send request failed");
 
     return reply.ReadInt32();

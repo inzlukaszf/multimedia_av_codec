@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2023-2023 Huawei Device Co., Ltd.
+* Copyright (C) 2023 Huawei Device Co., Ltd.
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
 * You may obtain a copy of the License at
@@ -18,6 +18,10 @@
 #include "common/log.h"
 #include "plugin/plugin_time.h"
 
+namespace {
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = { LOG_CORE, LOG_DOMAIN_SYSTEM_PLAYER, "Histreamer" };
+}
+
 namespace OHOS {
 namespace Media {
 namespace Pipeline {
@@ -31,7 +35,7 @@ void MediaSynchronousSink::Init()
 
 MediaSynchronousSink::~MediaSynchronousSink()
 {
-    MEDIA_LOG_I("~MediaSynchronousSink enter .");
+    MEDIA_LOG_D("~MediaSynchronousSink enter .");
     auto syncCenter = syncCenter_.lock();
     if (syncCenter) {
         syncCenter->RemoveSynchronizer(this);
@@ -83,23 +87,24 @@ void MediaSynchronousSink::NotifyAllPrerolled()
 
 void MediaSynchronousSink::UpdateMediaTimeRange(const std::shared_ptr<Meta>& meta)
 {
+    FALSE_RETURN_MSG(meta != nullptr, "meta is null!");
     int64_t trackStartTime = 0;
     meta->GetData(Tag::MEDIA_START_TIME, trackStartTime);
     uint32_t trackId = 0;
     FALSE_LOG(meta->GetData(Tag::REGULAR_TRACK_ID, trackId));
     auto syncCenter = syncCenter_.lock();
     if (syncCenter) {
-        syncCenter->SetMediaTimeRangeStart(trackStartTime, trackId);
+        syncCenter->SetMediaTimeRangeStart(trackStartTime, trackId, this);
     }
     int64_t trackDuration = 0;
     if (meta->GetData(Tag::MEDIA_DURATION, trackDuration)) {
         if (syncCenter) {
-            syncCenter->SetMediaTimeRangeEnd(trackDuration + trackStartTime, trackId);
+            syncCenter->SetMediaTimeRangeEnd(trackDuration + trackStartTime, trackId, this);
         }
     } else {
         MEDIA_LOG_W("Get duration failed");
         if (syncCenter) {
-            syncCenter->SetMediaTimeRangeEnd(INT64_MAX, trackId);
+            syncCenter->SetMediaTimeRangeEnd(INT64_MAX, trackId, this);
         }
     }
 }

@@ -34,6 +34,7 @@ public:
     Status Init(int32_t fd, Plugins::OutputFormat format);
     Status Init(FILE *file, Plugins::OutputFormat format);
     Status SetParameter(const std::shared_ptr<Meta> &param);
+    Status SetUserMeta(const std::shared_ptr<Meta> &userMeta);
     Status AddTrack(int32_t &trackIndex, const std::shared_ptr<Meta> &trackDesc);
     sptr<AVBufferQueueProducer> GetInputBufferQueue(uint32_t trackIndex);
     Status Start();
@@ -55,6 +56,7 @@ private:
     void StopThread();
     void ThreadProcessor();
     void OnBufferAvailable();
+    void ReleaseBuffer();
     bool CanAddTrack(const std::string &mimeType);
     bool CheckKeys(const std::string &mimeType, const std::shared_ptr<Meta> &trackDesc);
     std::string StateConvert(State state);

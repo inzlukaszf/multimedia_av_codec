@@ -23,7 +23,6 @@
 #include "osal/task/task.h"
 #include "buffer/avbuffer.h"
 #include "plugin/plugin_buffer.h"
-#include "plugin/plugin_manager.h"
 #include "plugin/plugin_info.h"
 
 namespace OHOS {
@@ -35,12 +34,10 @@ public:
 
     ~TypeFinder() override;
 
-    void Init(std::string uri, uint64_t mediaDataSize, std::function<bool(uint64_t, size_t)> checkRange,
-        std::function<bool(uint64_t, size_t, std::shared_ptr<Buffer>&)> peekRange);
+    void Init(std::string uri, uint64_t mediaDataSize, std::function<Status(int32_t, uint64_t, size_t)> checkRange,
+        std::function<Status(int32_t, uint64_t, size_t, std::shared_ptr<Buffer>&)> peekRange, int32_t streamId);
 
     std::string FindMediaType();
-
-    void FindMediaTypeAsync(std::function<void(std::string)> typeFound);
 
     Status ReadAt(int64_t offset, std::shared_ptr<Buffer>& buffer, size_t expectedLen) override;
 
@@ -48,9 +45,11 @@ public:
 
     Plugins::Seekable GetSeekable() override;
 
-private:
-    void DoTask();
+    int32_t GetStreamID() override;
 
+    bool IsDash() override { return false; }
+
+private:
     std::string SniffMediaType();
 
     std::string GuessMediaType() const;
@@ -58,8 +57,6 @@ private:
     bool IsOffsetValid(int64_t offset) const;
 
     bool IsSniffNeeded(std::string uri);
-
-    bool GetPlugins();
 
     void SortPlugins(const std::string& uriSuffix);
 
@@ -70,9 +67,10 @@ private:
     std::vector<std::shared_ptr<Plugins::PluginInfo>> plugins_;
     std::atomic<bool> pluginRegistryChanged_;
     std::shared_ptr<Task> task_;
-    std::function<bool(uint64_t, size_t)> checkRange_;
-    std::function<bool(uint64_t, size_t, std::shared_ptr<Buffer>&)> peekRange_;
+    std::function<Status(int32_t, uint64_t, size_t)> checkRange_;
+    std::function<Status(int32_t, uint64_t, size_t, std::shared_ptr<Buffer>&)> peekRange_;
     std::function<void(std::string)> typeFound_;
+    int32_t streamID_ = -1;
 };
 } // namespace Media
 } // namespace OHOS

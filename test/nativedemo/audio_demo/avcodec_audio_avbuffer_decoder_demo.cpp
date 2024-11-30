@@ -27,6 +27,10 @@
 #include "native_avbuffer.h"
 #include "native_avmemory.h"
 #include "securec.h"
+#ifdef SUPPORT_DRM
+#include "native_mediakeysession.h"
+#include "native_mediakeysystem.h"
+#endif
 
 using namespace OHOS;
 using namespace OHOS::MediaAVCodec;
@@ -53,6 +57,8 @@ constexpr string_view INPUT_AMRWB_FILE_PATH = "/data/test/media/voice_amrwb_2385
 constexpr string_view OUTPUT_AMRWB_PCM_FILE_PATH = "/data/test/media/voice_amrwb_23850.pcm";
 constexpr string_view INPUT_G711MU_FILE_PATH = "/data/test/media/g711mu_8kHz.dat";
 constexpr string_view OUTPUT_G711MU_PCM_FILE_PATH = "/data/test/media/g711mu_8kHz_decode.pcm";
+constexpr string_view INPUT_APE_FILE_PATH = "/data/test/media/ape.dat";
+constexpr string_view OUTPUT_APE_PCM_FILE_PATH = "/data/test/media/ape_decode.pcm";
 } // namespace
 
 static void OnError(OH_AVCodec *codec, int32_t errorCode, void *userData)
@@ -114,6 +120,9 @@ bool ADecBufferDemo::InitFile(AudioBufferFormatType audioType)
     } else if (audioType == AudioBufferFormatType::TYPE_G711MU) {
         inputFile_.open(INPUT_G711MU_FILE_PATH, std::ios::binary);
         pcmOutputFile_.open(OUTPUT_G711MU_PCM_FILE_PATH.data(), std::ios::out | std::ios::binary);
+    } else if (audioType == AudioBufferFormatType::TYPE_APE) {
+        inputFile_.open(INPUT_APE_FILE_PATH, std::ios::binary);
+        pcmOutputFile_.open(OUTPUT_APE_PCM_FILE_PATH.data(), std::ios::out | std::ios::binary);
     } else {
         std::cout << "audio format type not support\n";
         return false;
@@ -128,7 +137,6 @@ void ADecBufferDemo::RunCase(AudioBufferFormatType audioType)
     DEMO_CHECK_AND_RETURN_LOG(InitFile(audioType), "Fatal: InitFile file failed");
     audioType_ = audioType;
     DEMO_CHECK_AND_RETURN_LOG(CreateDec() == AVCS_ERR_OK, "Fatal: CreateDec fail");
-
     OH_AVFormat *format = OH_AVFormat_Create();
     int32_t channelCount = CHANNEL_COUNT;
     int32_t sampleRate = SAMPLE_RATE;
@@ -139,11 +147,13 @@ void ADecBufferDemo::RunCase(AudioBufferFormatType audioType)
     } else if (audioType == AudioBufferFormatType::TYPE_AMRNB || audioType == AudioBufferFormatType::TYPE_G711MU) {
         channelCount = 1;
         sampleRate = AMRNB_SAMPLE_RATE;
-    } else if (audioType == AudioBufferFormatType::TYPE_AMRWB) {
+    } else if (audioType == AudioBufferFormatType::TYPE_AMRWB || audioType == AudioBufferFormatType::TYPE_APE) {
         channelCount = 1;
         sampleRate = AMRWB_SAMPLE_RATE;
         OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_AUDIO_SAMPLE_FORMAT.data(),
                                 OH_BitsPerSample::SAMPLE_S16LE);
+        OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_BITS_PER_CODED_SAMPLE.data(),
+                                16); // 16 bit pre code
     }
     OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_CHANNEL_COUNT.data(), channelCount);
     OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_SAMPLE_RATE.data(), sampleRate);
@@ -151,7 +161,6 @@ void ADecBufferDemo::RunCase(AudioBufferFormatType audioType)
     if (audioType == AudioBufferFormatType::TYPE_VORBIS) {
         OH_AVFormat_SetIntValue(format, MediaDescriptionKey::MD_KEY_AUDIO_SAMPLE_FORMAT.data(),
                                 OH_BitsPerSample::SAMPLE_S16LE);
-        // extradata for vorbis
         int64_t extradataSize;
         DEMO_CHECK_AND_RETURN_LOG(inputFile_.is_open(), "Fatal: file is not open");
         inputFile_.read(reinterpret_cast<char *>(&extradataSize), sizeof(int64_t));
@@ -168,17 +177,38 @@ void ADecBufferDemo::RunCase(AudioBufferFormatType audioType)
     DEMO_CHECK_AND_RETURN_LOG(Configure(format) == AVCS_ERR_OK, "Fatal: Configure fail");
     DEMO_CHECK_AND_RETURN_LOG(Start() == AVCS_ERR_OK, "Fatal: Start fail");
 
-    auto start = chrono::steady_clock::now();
-
     unique_lock<mutex> lock(signal_->startMutex_);
     signal_->startCond_.wait(lock, [this]() { return (!(isRunning_.load())); });
 
-    auto end = chrono::steady_clock::now();
-    std::cout << "Encode finished, time = " << std::chrono::duration_cast<chrono::milliseconds>(end - start).count()
-              << " ms" << std::endl;
-
     DEMO_CHECK_AND_RETURN_LOG(Stop() == AVCS_ERR_OK, "Fatal: Stop fail");
     DEMO_CHECK_AND_RETURN_LOG(Release() == AVCS_ERR_OK, "Fatal: Release fail");
+}
+
+void ADecBufferDemo::RunDrmCase(AudioBufferFormatType audioType)
+{
+    std::cout << "ADecBufferDemo::RunDrmCase" <<std::endl;
+#ifdef SUPPORT_DRM
+    audioType_ = audioType;
+    DEMO_CHECK_AND_RETURN_LOG(CreateDec() == AVCS_ERR_OK, "Fatal: CreateDec fail");
+
+    // test 1:create mediakeysystem
+    std::cout << "Test OH_MediaKeySystem_Create" << std::endl;
+    MediaKeySystem *system = NULL;
+    uint32_t errNo = OH_MediaKeySystem_Create("com.clearplay.drm", &system);
+    std::cout << "Test OH_MediaKeySystem_Create result" << system <<"and ret" << errNo << std::endl;
+
+    // test 2:create mediakeysystem
+    std::cout << "Test OH_MediaKeySystem_CreateMediaKeySession" <<std::endl;
+    DRM_ContentProtectionLevel contentProtectionLevel = CONTENT_PROTECTION_LEVEL_SW_CRYPTO;
+    MediaKeySession *session = NULL;
+    errNo = OH_MediaKeySystem_CreateMediaKeySession(system, &contentProtectionLevel, &session);
+    std::cout <<"Test OH_MediaKeySystem_CreateMediaKeySession result" << session << "and ret" << errNo << std::endl;
+
+    // test 3:SetDecryptConfigTest
+    std::cout <<"Test OH_AudioCodec_SetDecryptionConfig"<<std::endl;
+    errNo = OH_AudioCodec_SetDecryptionConfig(audioDec_, session, false);
+    std::cout <<"Test OH_AudioCodec_SetDecryptionConfig result"<<session<<"and ret"<<errNo<<std::endl;
+#endif
 }
 
 ADecBufferDemo::ADecBufferDemo() : audioDec_(nullptr), signal_(nullptr), audioType_(AudioBufferFormatType::TYPE_AAC) {}
@@ -213,6 +243,8 @@ int32_t ADecBufferDemo::CreateDec()
         audioDec_ = OH_AudioCodec_CreateByName((AVCodecCodecName::AUDIO_DECODER_AMRWB_NAME).data());
     } else if (audioType_ == AudioBufferFormatType::TYPE_G711MU) {
         audioDec_ = OH_AudioCodec_CreateByName((AVCodecCodecName::AUDIO_DECODER_G711MU_NAME).data());
+    } else if (audioType_ == AudioBufferFormatType::TYPE_APE) {
+        audioDec_ = OH_AudioCodec_CreateByName((AVCodecCodecName::AUDIO_DECODER_APE_NAME).data());
     } else {
         return AVCS_ERR_INVALID_VAL;
     }
@@ -382,7 +414,7 @@ void ADecBufferDemo::InputFunc()
         signal_->inBufferQueue_.pop();
         frameCount_++;
         if (ret != AVCS_ERR_OK) {
-            cout << "Fatal error, exit" << endl;
+            cout << "Fatal error, exit " << ret <<endl;
             break;
         }
     }
@@ -404,7 +436,6 @@ void ADecBufferDemo::OutputFunc()
 
         uint32_t index = signal_->outQueue_.front();
         OH_AVBuffer *data = signal_->outBufferQueue_.front();
-
         if (data == nullptr) {
             cout << "OutputFunc OH_AVBuffer is nullptr" << endl;
             continue;
@@ -412,7 +443,7 @@ void ADecBufferDemo::OutputFunc()
         pcmOutputFile_.write(reinterpret_cast<char *>(OH_AVBuffer_GetAddr(data)), data->buffer_->memory_->GetSize());
 
         if (data->buffer_->flag_ == AVCODEC_BUFFER_FLAGS_EOS || data->buffer_->memory_->GetSize() == 0) {
-            cout << "decode eos" << endl;
+            cout << "decode eos 1" << endl;
             isRunning_.store(false);
             signal_->startCond_.notify_all();
         }
@@ -422,9 +453,8 @@ void ADecBufferDemo::OutputFunc()
             cout << "Fatal: FreeOutputData fail" << endl;
             break;
         }
-
         if (data->buffer_->flag_ == AVCODEC_BUFFER_FLAGS_EOS) {
-            cout << "decode eos" << endl;
+            cout << "decode eos 2" << endl;
             isRunning_.store(false);
             signal_->startCond_.notify_all();
         }

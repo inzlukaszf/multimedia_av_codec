@@ -35,7 +35,6 @@ public:
     // TearDown: Called after each test cases
     void TearDown(void);
 };
-
 std::shared_ptr<HlsPlayListDownloader> playListDownloader = std::make_shared<HlsPlayListDownloader>();
 }
 }

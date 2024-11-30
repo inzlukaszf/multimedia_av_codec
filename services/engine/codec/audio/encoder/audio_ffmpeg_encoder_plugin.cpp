@@ -21,7 +21,7 @@
 #include "securec.h"
 #include "ffmpeg_converter.h"
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AvCodec-AudioFFMpegEncoderPlugin"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_AUDIO, "AvCodec-AudioFFMpegEncoderPlugin"};
 }
 
 namespace OHOS {
@@ -40,7 +40,6 @@ AudioFfmpegEncoderPlugin::AudioFfmpegEncoderPlugin()
 AudioFfmpegEncoderPlugin::~AudioFfmpegEncoderPlugin()
 {
     CloseCtxLocked();
-    avCodecContext_.reset();
 }
 
 int32_t AudioFfmpegEncoderPlugin::ProcessSendData(const std::shared_ptr<AudioBufferInfo> &inputBuffer)
@@ -58,7 +57,7 @@ int32_t AudioFfmpegEncoderPlugin::PcmFillFrame(const std::shared_ptr<AudioBuffer
     auto memory = inputBuffer->GetBuffer();
     auto usedSize = inputBuffer->GetBufferAttr().size;
     auto frameSize = avCodecContext_->frame_size;
-    cachedFrame_->nb_samples = usedSize / channelsBytesPerSample_;
+    cachedFrame_->nb_samples = static_cast<int>(usedSize / channelsBytesPerSample_);
     AVCODEC_LOGI("sampleRate : %{public}d, frameSize : %{public}d", avCodecContext_->sample_rate, frameSize);
     if (cachedFrame_->nb_samples > frameSize) {
         AVCODEC_LOGE("cachedFrame_->nb_samples is greater than frameSize, please enter a correct frameBytes."
@@ -170,7 +169,7 @@ int32_t AudioFfmpegEncoderPlugin::ReceivePacketSucc(std::shared_ptr<AudioBufferI
     uint32_t headerSize = 0;
     auto memory = outBuffer->GetBuffer();
 
-    int32_t outputSize = avPacket_->size + headerSize;
+    int32_t outputSize = static_cast<int32_t>(avPacket_->size + headerSize);
     if (memory->GetSize() < outputSize) {
         AVCODEC_LOGW("Output buffer capacity is not enough");
         return AVCodecServiceErrCode::AVCS_ERR_NO_MEMORY;
@@ -183,7 +182,7 @@ int32_t AudioFfmpegEncoderPlugin::ReceivePacketSucc(std::shared_ptr<AudioBufferI
     }
 
     auto attr = outBuffer->GetBufferAttr();
-    attr.size = avPacket_->size + headerSize;
+    attr.size = static_cast<size_t>(avPacket_->size + headerSize);
     prevPts_ += avPacket_->duration;
     attr.presentationTimeUs = FFMpegConverter::ConvertAudioPtsToUs(prevPts_, avCodecContext_->time_base);
     outBuffer->SetBufferAttr(attr);
@@ -194,7 +193,6 @@ int32_t AudioFfmpegEncoderPlugin::Reset()
 {
     std::lock_guard<std::mutex> lock(avMutext_);
     auto ret = CloseCtxLocked();
-    avCodecContext_.reset();
     prevPts_ = 0;
     return ret;
 }
@@ -203,7 +201,6 @@ int32_t AudioFfmpegEncoderPlugin::Release()
 {
     std::lock_guard<std::mutex> lock(avMutext_);
     auto ret = CloseCtxLocked();
-    avCodecContext_.reset();
     return ret;
 }
 
@@ -235,8 +232,10 @@ int32_t AudioFfmpegEncoderPlugin::AllocateContext(const std::string &name)
         std::lock_guard<std::mutex> lock(avMutext_);
         context = avcodec_alloc_context3(avCodec_.get());
         avCodecContext_ = std::shared_ptr<AVCodecContext>(context, [](AVCodecContext *ptr) {
-            avcodec_free_context(&ptr);
-            avcodec_close(ptr);
+            if (ptr) {
+                avcodec_free_context(&ptr);
+                ptr = nullptr;
+            }
         });
         av_log_set_level(AV_LOG_ERROR);
     }
@@ -260,7 +259,8 @@ int32_t AudioFfmpegEncoderPlugin::InitContext(const Format &format)
     format.GetIntValue(MediaDescriptionKey::MD_KEY_AUDIO_SAMPLE_FORMAT, sampleFormat);
     auto ffSampleFormat = FFMpegConverter::ConvertOHAudioFormatToFFMpeg(static_cast<AudioSampleFormat>(sampleFormat));
     avCodecContext_->sample_fmt = ffSampleFormat;
-    channelsBytesPerSample_ = av_get_bytes_per_sample(ffSampleFormat) * avCodecContext_->channels;
+    channelsBytesPerSample_ =
+        static_cast<uint32_t>(av_get_bytes_per_sample(ffSampleFormat) * avCodecContext_->channels);
     AVCODEC_LOGI("avcodec name: %{public}s", avCodec_->name);
     return AVCodecServiceErrCode::AVCS_ERR_OK;
 }
@@ -291,8 +291,10 @@ int32_t AudioFfmpegEncoderPlugin::ReAllocateContext()
 
     AVCodecContext *context = avcodec_alloc_context3(avCodec_.get());
     auto tmpContext = std::shared_ptr<AVCodecContext>(context, [](AVCodecContext *ptr) {
-        avcodec_free_context(&ptr);
-        avcodec_close(ptr);
+        if (ptr) {
+            avcodec_free_context(&ptr);
+            ptr = nullptr;
+        }
     });
 
     tmpContext->channels = avCodecContext_->channels;
@@ -338,11 +340,7 @@ int32_t AudioFfmpegEncoderPlugin::GetMaxInputSize() const noexcept
 int32_t AudioFfmpegEncoderPlugin::CloseCtxLocked()
 {
     if (avCodecContext_ != nullptr) {
-        auto res = avcodec_close(avCodecContext_.get());
-        if (res != 0) {
-            AVCODEC_LOGE("avcodec close failed: %{public}s", FFMpegConverter::AVStrError(res).c_str());
-            return AVCodecServiceErrCode::AVCS_ERR_UNKNOWN;
-        }
+        avCodecContext_.reset();
     }
     return AVCodecServiceErrCode::AVCS_ERR_OK;
 }

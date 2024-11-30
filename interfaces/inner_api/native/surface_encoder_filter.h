@@ -26,7 +26,7 @@
 #include "buffer/avbuffer_queue_producer.h"
 #include "buffer/avbuffer_queue_consumer.h"
 #include "common/status.h"
-#include "common/log.h"
+#include "avcodec_common.h"
 
 namespace OHOS {
 namespace Media {
@@ -39,19 +39,20 @@ public:
     Status SetCodecFormat(const std::shared_ptr<Meta> &format);
     void Init(const std::shared_ptr<EventReceiver> &receiver,
         const std::shared_ptr<FilterCallback> &callback) override;
-    void SetLogTag(std::string logTag);
     Status Configure(const std::shared_ptr<Meta> &parameter);
+    Status SetWatermark(std::shared_ptr<AVBuffer> &waterMarkBuffer);
     Status SetInputSurface(sptr<Surface> surface);
+    Status SetTransCoderMode();
     sptr<Surface> GetInputSurface();
-    Status Prepare() override;
-    Status Start() override;
-    Status Pause() override;
-    Status Resume() override;
+    Status DoPrepare() override;
+    Status DoStart() override;
+    Status DoPause() override;
+    Status DoResume() override;
     Status Reset();
-    Status Stop() override;
-    Status Flush() override;
-    Status Release() override;
-    Status NotifyEos();
+    Status DoStop() override;
+    Status DoFlush() override;
+    Status DoRelease() override;
+    Status NotifyEos(int64_t pts);
     void SetParameter(const std::shared_ptr<Meta> &parameter) override;
     void GetParameter(std::shared_ptr<Meta> &parameter) override;
     Status LinkNext(const std::shared_ptr<Filter> &nextFilter, StreamType outType) override;
@@ -61,6 +62,8 @@ public:
     void OnLinkedResult(const sptr<AVBufferQueueProducer> &outputBufferQueue, std::shared_ptr<Meta> &meta);
     void OnUpdatedResult(std::shared_ptr<Meta> &meta);
     void OnUnlinkedResult(std::shared_ptr<Meta> &meta);
+    void SetCallingInfo(int32_t appUid, int32_t appPid, const std::string &bundleName, uint64_t instanceId);
+    void OnError(MediaAVCodec::AVCodecErrorType errorType, int32_t errorCode);
 
 protected:
     Status OnLinked(StreamType inType, const std::shared_ptr<Meta> &meta,
@@ -71,7 +74,7 @@ protected:
 
 private:
     std::string name_;
-    FilterType filterType_;
+    FilterType filterType_ = FilterType::FILTERTYPE_VENC;
 
     std::shared_ptr<EventReceiver> eventReceiver_;
     std::shared_ptr<FilterCallback> filterCallback_;
@@ -85,7 +88,12 @@ private:
 
     std::shared_ptr<Filter> nextFilter_;
 
-    std::string logTag_ = "";
+    std::atomic<bool> isUpdateCodecNeeded_ = false;
+    sptr<Surface> surface_{nullptr};
+    std::string bundleName_;
+    uint64_t instanceId_{0};
+    int32_t appUid_ {0};
+    int32_t appPid_ {0};
 };
 } // namespace Pipeline
 } // namespace MEDIA

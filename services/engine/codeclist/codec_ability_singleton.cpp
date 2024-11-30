@@ -22,7 +22,7 @@
 #include "codec_ability_singleton.h"
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "CodecAbilitySingleton"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_FRAMEWORK, "CodecAbilitySingleton"};
 }
 
 namespace OHOS {
@@ -33,6 +33,8 @@ std::unordered_map<CodecType, std::shared_ptr<CodecListBase>> GetCodecLists()
 #ifndef CLIENT_SUPPORT_CODEC
     std::shared_ptr<CodecListBase> vcodecList = std::make_shared<VideoCodecList>();
     codecLists.insert(std::make_pair(CodecType::AVCODEC_VIDEO_CODEC, vcodecList));
+    std::shared_ptr<CodecListBase> hevcDecoderList = std::make_shared<VideoHevcDecoderList>();
+    codecLists.insert(std::make_pair(CodecType::AVCODEC_VIDEO_HEVC_DECODER, hevcDecoderList));
 #endif
     std::shared_ptr<CodecListBase> acodecList = std::make_shared<AudioCodecList>();
     codecLists.insert(std::make_pair(CodecType::AVCODEC_AUDIO_CODEC, acodecList));
@@ -73,7 +75,7 @@ CodecAbilitySingleton::~CodecAbilitySingleton()
 void CodecAbilitySingleton::RegisterCapabilityArray(std::vector<CapabilityData> &capaArray, CodecType codecType)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    int32_t beginIdx = capabilityDataArray_.size();
+    size_t beginIdx = capabilityDataArray_.size();
     for (auto iter = capaArray.begin(); iter != capaArray.end(); iter++) {
         std::string mimeType = (*iter).mimeType;
         std::vector<size_t> idxVec;
@@ -109,6 +111,14 @@ std::vector<CapabilityData> CodecAbilitySingleton::GetCapabilityArray()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return capabilityDataArray_;
+}
+
+std::optional<CapabilityData> CodecAbilitySingleton::GetCapabilityByName(const std::string &name)
+{
+    auto it = std::find_if(capabilityDataArray_.begin(), capabilityDataArray_.end(), [&](const CapabilityData &cap) {
+        return cap.codecName == name;
+    });
+    return it == capabilityDataArray_.end() ? std::nullopt : std::make_optional<CapabilityData>(*it);
 }
 
 std::unordered_map<std::string, CodecType> CodecAbilitySingleton::GetNameCodecTypeMap()

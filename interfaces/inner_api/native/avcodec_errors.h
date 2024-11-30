@@ -37,10 +37,6 @@ typedef enum AVCodecServiceErrCode : ErrCode {
     AVCS_ERR_INVALID_VAL = AVCS_ERR_OFFSET + EINVAL,       // invalid argument
     AVCS_ERR_UNKNOWN = AVCS_ERR_OFFSET + 0x200,            // unkown error.
     AVCS_ERR_SERVICE_DIED,                                 // avcodec service died
-    AVCS_ERR_CREATE_AVCODEC_SUB_SERVICE_FAILED,            // create avcodec sub service failed.
-    AVCS_ERR_CREATE_MUXER_SUB_SERVICE_FAILED,              // create muxer sub service failed.
-    AVCS_ERR_CREATE_DEMUXER_SUB_SERVICE_FAILED,            // create demuxer sub service failed.
-    AVCS_ERR_CREATE_SOURCE_SUB_SERVICE_FAILED,             // create source sub service failed.
     AVCS_ERR_INVALID_STATE,                                // the state is not support this operation.
     AVCS_ERR_UNSUPPORT,                                    // unsupport interface.
     AVCS_ERR_UNSUPPORT_AUD_SRC_TYPE,                       // unsupport audio source type.
@@ -75,6 +71,13 @@ typedef enum AVCodecServiceErrCode : ErrCode {
     AVCS_ERR_DATA_SOURCE_IO_ERROR,                         // avcodec data source IO failed.
     AVCS_ERR_DATA_SOURCE_OBTAIN_MEM_ERROR,                 // avcodec data source get mem failed.
     AVCS_ERR_DATA_SOURCE_ERROR_UNKNOWN,                    // avcodec data source error unknow.
+    AVCS_ERR_CODEC_PARAM_INCORRECT,                        // video codec param check failed.
+
+    AVCS_ERR_IPC_UNKNOWN,                                  // avcodec ipc unknown err.
+    AVCS_ERR_IPC_GET_SUB_SYSTEM_ABILITY_FAILED,            // avcodec ipc err, get sub system ability failed.
+    AVCS_ERR_IPC_SET_DEATH_LISTENER_FAILED,                // avcodec ipc err, set death listener failed.
+    AVCS_ERR_CREATE_CODECLIST_STUB_FAILED,                 // create codeclist sub service failed.
+    AVCS_ERR_CREATE_AVCODEC_STUB_FAILED,                   // create avcodec sub service failed.
 
     AVCS_ERR_NOT_ENOUGH_DATA,                              // avcodec output buffer not full of a pack
     AVCS_ERR_END_OF_STREAM,                                // the end of stream
@@ -83,6 +86,10 @@ typedef enum AVCodecServiceErrCode : ErrCode {
     AVCS_ERR_MISMATCH_BIT_RATE,                            // not configure channel bit rate
     AVCS_ERR_CONFIGURE_ERROR,                              // flac encoder configure compression level out of limit
     AVCS_ERR_INVALID_DATA,                                 // Invalid data found when processing input
+    AVCS_ERR_DECRYPT_FAILED,                               // drm decrypt failed
+    AVCS_ERR_TRY_AGAIN,                                    // try again later
+    AVCS_ERR_EMPTY_INPUT_FAILED,                           // there is somthing wrong for input buffer
+    AVCS_ERR_VIDEO_UNSUPPORT_COLOR_SPACE_CONVERSION,       // video unsupport color space conversion
 
     AVCS_ERR_EXTEND_START = AVCS_ERR_OFFSET + 0xF000,      // extend err start.
 } AVCodecServiceErrCode;
@@ -92,6 +99,7 @@ __attribute__((visibility("default"))) std::string OHAVErrCodeToString(OH_AVErrC
 __attribute__((visibility("default"))) std::string AVCSErrorToOHAVErrCodeString(AVCodecServiceErrCode code);
 __attribute__((visibility("default"))) OH_AVErrCode AVCSErrorToOHAVErrCode(AVCodecServiceErrCode code);
 __attribute__((visibility("default"))) AVCodecServiceErrCode StatusToAVCodecServiceErrCode(Media::Status code);
+__attribute__((visibility("default"))) AVCodecServiceErrCode VPEErrorToAVCSError(int32_t code);
 } // namespace MediaAVCodec
 } // namespace OHOS
 #endif // MEDIA_AVCODEC_ERRORS_H

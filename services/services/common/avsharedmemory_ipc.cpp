@@ -20,7 +20,7 @@
 #include "buffer/avsharedmemorybase.h"
 
 namespace {
-constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN, "AVSharedMemoryIPC"};
+constexpr OHOS::HiviewDFX::HiLogLabel LABEL = {LOG_CORE, LOG_DOMAIN_FRAMEWORK, "AVSharedMemoryIPC"};
 }
 
 namespace OHOS {
@@ -58,7 +58,9 @@ std::shared_ptr<AVSharedMemory> ReadAVSharedMemoryFromParcel(MessageParcel &parc
         memory = nullptr;
     }
 
-    (void)::close(fd);
+    if (fd >= 0) {
+        (void)::close(fd);
+    }
     return memory;
 }
 } // namespace MediaAVCodec

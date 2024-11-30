@@ -17,8 +17,8 @@
 #include <algorithm>
 #include <utility>
 #include <sstream>
-#include "common/log.h"
 #include "m3u8.h"
+#include "base64_utils.h"
 
 namespace OHOS {
 namespace Media {
@@ -27,26 +27,12 @@ namespace HttpPlugin {
 namespace {
 constexpr uint32_t MAX_LOOP = 16;
 constexpr uint32_t DRM_UUID_OFFSET = 12;
-constexpr uint32_t DRM_INFO_BASE64_DATA_MULTIPLE = 4;
-constexpr uint32_t DRM_INFO_BASE64_BASE_UNIT_OF_CONVERSION = 3;
 constexpr uint32_t DRM_PSSH_TITLE_LEN = 16;
+constexpr uint32_t WAIT_KEY_SLEEP_TIME = 10;
+constexpr uint32_t MAX_DOWNLOAD_TIME = 500;
+constexpr uint64_t BAND_WIDTH_LIMIT = 3 * 1024 * 1024;
 
 const char DRM_PSSH_TITLE[] = "data:text/plain;";
-
-/**
- * base64 decoding table
- */
-static const uint8_t BASE64_DECODE_TABLE[] = {
-    // 16 per row
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 1 - 16
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 17 - 32
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62, 0, 0, 0, 63,  // 33 - 48
-    52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 0, 0, 0, 0, 0, 0,  // 49 - 64
-    0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,  // 65 - 80
-    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 0, 0, 0, 0, 0,  // 81 - 96
-    0, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,  // 97 - 112
-    41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 0, 0, 0, 0, 0  // 113 - 128
-};
 
 bool StrHasPrefix(const std::string &str, const std::string &prefix)
 {
@@ -59,6 +45,9 @@ std::string UriJoin(std::string& baseUrl, const std::string& uri)
         return uri;
     } else if (uri.find("//") == 0) { // start with "//"
         return baseUrl.substr(0, baseUrl.find('/')) + uri;
+    } else if (uri.find('/') == 0) {
+        auto pos = baseUrl.find('/', strlen("https://"));
+        return baseUrl.substr(0, pos) + uri;
     } else {
         std::string::size_type pos = baseUrl.rfind('/');
         return baseUrl.substr(0, pos + 1) + uri;
@@ -68,7 +57,6 @@ std::string UriJoin(std::string& baseUrl, const std::string& uri)
 
 M3U8Fragment::M3U8Fragment(const M3U8Fragment& m3u8, const uint8_t *key, const uint8_t *iv)
     : uri_(std::move(m3u8.uri_)),
-      title_(std::move(m3u8.title_)),
       duration_(m3u8.duration_),
       sequence_(m3u8.sequence_),
       discont_(m3u8.discont_)
@@ -83,8 +71,8 @@ M3U8Fragment::M3U8Fragment(const M3U8Fragment& m3u8, const uint8_t *key, const u
     }
 }
 
-M3U8Fragment::M3U8Fragment(std::string uri, std::string title, double duration, int sequence, bool discont)
-    : uri_(std::move(uri)), title_(std::move(title)), duration_(duration), sequence_(sequence), discont_(discont)
+M3U8Fragment::M3U8Fragment(std::string uri, double duration, int sequence, bool discont)
+    : uri_(std::move(uri)), duration_(duration), sequence_(sequence), discont_(discont)
 {
 }
 
@@ -96,26 +84,28 @@ M3U8::M3U8(std::string uri, std::string name) : uri_(std::move(uri)), name_(std:
 M3U8::~M3U8()
 {
     if (downloader_) {
-        downloader_->Stop();
+        downloader_ = nullptr;
     }
 }
 
-bool M3U8::Update(const std::string& playList)
+bool M3U8::Update(const std::string& playList, bool isNeedCleanFiles)
 {
     if (playList_ == playList) {
         MEDIA_LOG_I("playlist does not change ");
         return true;
     }
     if (!StrHasPrefix(playList, "#EXTM3U")) {
-        MEDIA_LOG_I("playlist doesn't start with #EXTM3U " PUBLIC_LOG_S, playList.c_str());
+        MEDIA_LOG_I("playlist doesn't start with #EXTM3U");
         return false;
     }
     if (playList.find("\n#EXT-X-STREAM-INF:") != std::string::npos) {
-        MEDIA_LOG_I("Not a media playlist, but a master playlist! " PUBLIC_LOG_S, playList.c_str());
+        MEDIA_LOG_I("Not a media playlist, but a master playlist!");
         return false;
     }
-    files_.clear();
-    MEDIA_LOG_I("media playlist " PUBLIC_LOG_S, playList.c_str());
+    if (isNeedCleanFiles) {
+        files_.clear();
+    }
+    MEDIA_LOG_I("media playlist");
     auto tags = ParseEntries(playList);
     UpdateFromTags(tags);
     tags.clear();
@@ -123,60 +113,57 @@ bool M3U8::Update(const std::string& playList)
     return true;
 }
 
-void M3U8::InitTagUpdatersMap()
+void M3U8::InitTagUpdaters()
 {
     tagUpdatersMap_[HlsTag::EXTXPLAYLISTTYPE] = [this](std::shared_ptr<Tag> &tag, const M3U8Info &info) {
         bLive_ = !info.bVod && (std::static_pointer_cast<SingleValueTag>(tag)->GetValue().QuotedString() != "VOD");
     };
-
     tagUpdatersMap_[HlsTag::EXTXTARGETDURATION] = [this](std::shared_ptr<Tag> &tag, const M3U8Info &info) {
         std::ignore = info;
         targetDuration_ = std::static_pointer_cast<SingleValueTag>(tag)->GetValue().FloatingPoint();
     };
-
     tagUpdatersMap_[HlsTag::EXTXMEDIASEQUENCE] = [this](std::shared_ptr<Tag> &tag, const M3U8Info &info) {
         std::ignore = info;
         sequence_ = std::static_pointer_cast<SingleValueTag>(tag)->GetValue().Decimal();
     };
-
     tagUpdatersMap_[HlsTag::EXTXDISCONTINUITYSEQUENCE] = [this](std::shared_ptr<Tag> &tag, M3U8Info &info) {
         discontSequence_ = static_cast<int>(std::static_pointer_cast<SingleValueTag>(tag)->GetValue().Decimal());
         info.discontinuity = true;
     };
-
     tagUpdatersMap_[HlsTag::EXTINF] = [this](const std::shared_ptr<Tag> &tag, M3U8Info &info) {
-        GetExtInf(tag, info.duration, info.title);
+        GetExtInf(tag, info.duration);
     };
-
     tagUpdatersMap_[HlsTag::URI] = [this](std::shared_ptr<Tag> &tag, M3U8Info &info) {
         info.uri = UriJoin(uri_, std::static_pointer_cast<SingleValueTag>(tag)->GetValue().QuotedString());
     };
-
     tagUpdatersMap_[HlsTag::EXTXBYTERANGE] = [](const std::shared_ptr<Tag> &tag, const M3U8Info &info) {
         std::ignore = tag;
         std::ignore = info;
         MEDIA_LOG_I("need to parse EXTXBYTERANGE");
     };
+}
 
+void M3U8::InitTagUpdatersMap()
+{
+    InitTagUpdaters();
     tagUpdatersMap_[HlsTag::EXTXDISCONTINUITY] = [this](const std::shared_ptr<Tag> &tag, M3U8Info &info) {
         std::ignore = tag;
         discontSequence_++;
         info.discontinuity = true;
     };
-
     tagUpdatersMap_[HlsTag::EXTXKEY] = [this](std::shared_ptr<Tag> &tag, const M3U8Info &info) {
-        isDecryptAble_ = true;
-        isDecryptKeyReady_ = false;
-        ParseKey(std::static_pointer_cast<AttributesTag>(tag));
-        if ((keyUri_ != nullptr) && (keyUri_->length() > DRM_PSSH_TITLE_LEN) &&
-            (keyUri_->substr(0, DRM_PSSH_TITLE_LEN) == DRM_PSSH_TITLE)) {
-            ProcessDrmInfos();
-        } else {
-            DownloadKey();
+        if (!isDecryptAble_ && !isDecryptKeyReady_) {
+            isDecryptAble_ = true;
+            isDecryptKeyReady_ = false;
+            ParseKey(std::static_pointer_cast<AttributesTag>(tag));
+            if ((keyUri_ != nullptr) && (keyUri_->length() > DRM_PSSH_TITLE_LEN) &&
+                (keyUri_->substr(0, DRM_PSSH_TITLE_LEN) == DRM_PSSH_TITLE)) {
+                ProcessDrmInfos();
+            } else {
+                DownloadKey();
+            }
         }
-        // wait for key downloaded
     };
-
     tagUpdatersMap_[HlsTag::EXTXMAP] = [](const std::shared_ptr<Tag> &tag, const M3U8Info &info) {
         std::ignore = tag;
         std::ignore = info;
@@ -198,26 +185,34 @@ void M3U8::UpdateFromTags(std::list<std::shared_ptr<Tag>>& tags)
         }
 
         if (!info.uri.empty()) {
+            if (!isFirstFragmentReady_ && !isDecryptAble_) {
+                firstFragment_ = info;
+                isFirstFragmentReady_ = true;
+            }
             // add key_ and iv_ to M3U8Fragment(file)
             if (isDecryptAble_) {
-                auto m3u8 = M3U8Fragment(info.uri, info.title, info.duration, sequence_++, info.discontinuity);
+                auto m3u8 = M3U8Fragment(info.uri, info.duration, sequence_++, info.discontinuity);
                 auto fragment = std::make_shared<M3U8Fragment>(m3u8, key_, iv_);
                 files_.emplace_back(fragment);
             } else {
-                auto fragment = std::make_shared<M3U8Fragment>(info.uri, info.title, info.duration, sequence_++,
+                auto fragment = std::make_shared<M3U8Fragment>(info.uri, info.duration, sequence_++,
                     info.discontinuity);
                 files_.emplace_back(fragment);
             }
-            info.uri = "", info.title = "", info.duration = 0, info.discontinuity = false;
+            info.uri = "", info.duration = 0, info.discontinuity = false;
         }
     }
 }
 
-void M3U8::GetExtInf(const std::shared_ptr<Tag>& tag, double& duration, std::string& title) const
+void M3U8::GetExtInf(const std::shared_ptr<Tag>& tag, double& duration) const
 {
     auto item = std::static_pointer_cast<ValuesListTag>(tag);
-    duration =  item ->GetAttributeByName("DURATION")->FloatingPoint();
-    title = item ->GetAttributeByName("TITLE")->QuotedString();
+    if (item == nullptr) {
+        return;
+    }
+    if (item->GetAttributeByName("DURATION")) {
+        duration = item->GetAttributeByName("DURATION")->FloatingPoint();
+    }
 }
 
 double M3U8::GetDuration() const
@@ -298,51 +293,8 @@ void M3U8::OnDownloadStatus(DownloadStatus status, std::shared_ptr<Downloader> &
 {
     // This should not be called normally
     if (request->GetClientError() != NetworkClientErrorCode::ERROR_OK || request->GetServerError() != 0) {
-        MEDIA_LOG_E("OnDownloadStatus " PUBLIC_LOG_D32 ", url : " PUBLIC_LOG_S, status, request->GetUrl().c_str());
+        MEDIA_LOG_E("OnDownloadStatus " PUBLIC_LOG_D32, status);
     }
-}
-
-/**
- * @brief Base64Decode base64 decoding
- * @param src data to be decoded
- * @param srcSize The size of the data to be decoded
- * @param dest decoded output data
- * @param destSize The size of the output data after decoding
- * @return bool true: success false: invalid parameter
- * Note: The size of the decoded data must be greater than 4 and be a multiple of 4
- */
-bool M3U8::Base64Decode(const uint8_t *src, uint32_t srcSize, uint8_t *dest, uint32_t *destSize)
-{
-    if ((src == nullptr) || (srcSize == 0) || (dest == nullptr) || (destSize == nullptr) || (srcSize > *destSize)) {
-        MEDIA_LOG_E("parameter is err");
-        return false;
-    }
-    if ((srcSize < DRM_INFO_BASE64_DATA_MULTIPLE) || (srcSize % DRM_INFO_BASE64_DATA_MULTIPLE != 0)) {
-        MEDIA_LOG_E("srcSize is err");
-        return false;
-    }
-
-    uint32_t i;
-    uint32_t j;
-    // Calculate decoded string length
-    uint32_t len = srcSize / DRM_INFO_BASE64_DATA_MULTIPLE * DRM_INFO_BASE64_BASE_UNIT_OF_CONVERSION;
-    if (src[srcSize - 1] == '=') { // 1:last one
-        len--;
-    }
-    if (src[srcSize - 2] == '=') { // 2:second to last
-        len--;
-    }
-
-    for (i = 0, j = 0; i < srcSize;
-        i += DRM_INFO_BASE64_DATA_MULTIPLE, j += DRM_INFO_BASE64_BASE_UNIT_OF_CONVERSION) {
-        dest[j] = (BASE64_DECODE_TABLE[src[i]] << 2) | (BASE64_DECODE_TABLE[src[i + 1]] >> 4); // 2&4bits move
-        dest[j + 1] = (BASE64_DECODE_TABLE[src[i + 1]] << 4) | // 4:4bits moved
-            (BASE64_DECODE_TABLE[src[i + 2]] >> 2); // 2:index 2:2bits moved
-        dest[j + 2] = (BASE64_DECODE_TABLE[src[i + 2]] << 6) | // 2:index 6:6bits moved
-            (BASE64_DECODE_TABLE[src[i + 3]]); // 3:index
-    }
-    *destSize = len;
-    return true;
 }
 
 /**
@@ -366,7 +318,7 @@ bool M3U8::SetDrmInfo(std::multimap<std::string, std::vector<uint8_t>>& drmInfo)
     if (psshString.length() == 0) {
         return false;
     }
-    bool ret = Base64Decode(reinterpret_cast<const uint8_t *>(psshString.c_str()),
+    bool ret = Base64Utils::Base64Decode(reinterpret_cast<const uint8_t *>(psshString.c_str()),
         static_cast<uint32_t>(psshString.length()), pssh, &psshSize);
     if (ret) {
         uint32_t uuidSize = 16; // 16: uuid len
@@ -440,7 +392,7 @@ M3U8MasterPlaylist::M3U8MasterPlaylist(const std::string& playList, const std::s
     playList_ = playList;
     uri_ = uri;
     if (!StrHasPrefix(playList_, "#EXTM3U")) {
-        MEDIA_LOG_I("playlist doesn't start with #EXTM3U " PUBLIC_LOG_S, uri.c_str());
+        MEDIA_LOG_I("playlist doesn't start with #EXTM3U ");
     }
     if (playList_.find("\n#EXTINF:") != std::string::npos) {
         UpdateMediaPlaylist();
@@ -451,24 +403,52 @@ M3U8MasterPlaylist::M3U8MasterPlaylist(const std::string& playList, const std::s
 
 void M3U8MasterPlaylist::UpdateMediaPlaylist()
 {
-    MEDIA_LOG_I("This is a simple media playlist, not a master playlist " PUBLIC_LOG_S, uri_.c_str());
+    MEDIA_LOG_I("This is a simple media playlist, not a master playlist ");
     auto m3u8 = std::make_shared<M3U8>(uri_, "");
     auto stream = std::make_shared<M3U8VariantStream>(uri_, uri_, m3u8);
     variants_.emplace_back(stream);
     defaultVariant_ = stream;
-    m3u8->Update(playList_);
+    if (isDecryptAble_) {
+        m3u8->isDecryptAble_ = isDecryptAble_;
+        std::copy(std::begin(key_), std::end(key_), std::begin(m3u8->key_));
+        m3u8->isDecryptKeyReady_ = isDecryptKeyReady_;
+        std::copy(std::begin(iv_), std::end(iv_), std::begin(m3u8->iv_));
+        m3u8->keyLen_ = keyLen_;
+    }
+    m3u8->Update(playList_, false);
     duration_ = m3u8->GetDuration();
     bLive_ = m3u8->IsLive();
     isSimple_ = true;
     MEDIA_LOG_D("UpdateMediaPlaylist called, duration_ = " PUBLIC_LOG_F, duration_);
 }
 
+void M3U8MasterPlaylist::DownloadSessionKey(std::shared_ptr<Tag>& tag)
+{
+    auto m3u8 = std::make_shared<M3U8>(uri_, "");
+    m3u8->isDecryptAble_ = true;
+    m3u8->isDecryptKeyReady_ = false;
+    m3u8->ParseKey(std::static_pointer_cast<AttributesTag>(tag));
+    m3u8->DownloadKey();
+    uint32_t downloadTime = 0;
+    while (!m3u8->isDecryptKeyReady_ && downloadTime < MAX_DOWNLOAD_TIME) {
+        Task::SleepInTask(WAIT_KEY_SLEEP_TIME);
+        downloadTime++;
+    }
+    std::copy(std::begin(m3u8->key_), std::end(m3u8->key_), std::begin(key_));
+    isDecryptKeyReady_ = m3u8->isDecryptKeyReady_;
+    std::copy(std::begin(m3u8->iv_), std::end(m3u8->iv_), std::begin(iv_));
+    keyLen_ = m3u8->keyLen_;
+}
+
 void M3U8MasterPlaylist::UpdateMasterPlaylist()
 {
-    MEDIA_LOG_I("master playlist " PUBLIC_LOG_S, playList_.c_str());
+    MEDIA_LOG_I("master playlist");
     auto tags = ParseEntries(playList_);
     std::for_each(tags.begin(), tags.end(), [this] (std::shared_ptr<Tag>& tag) {
         switch (tag->GetType()) {
+            case HlsTag::EXTXSESSIONKEY:
+                DownloadSessionKey(tag);
+                break;
             case HlsTag::EXTXSTREAMINF:
             case HlsTag::EXTXIFRAMESTREAMINF: {
                 auto item = std::static_pointer_cast<AttributesTag>(tag);
@@ -477,6 +457,7 @@ void M3U8MasterPlaylist::UpdateMasterPlaylist()
                     auto name = uriAttribute->QuotedString();
                     auto uri = UriJoin(uri_, name);
                     auto stream = std::make_shared<M3U8VariantStream>(name, uri, std::make_shared<M3U8>(uri, name));
+                    FALSE_RETURN_MSG(stream != nullptr, "UpdateMasterPlaylist memory not enough");
                     if (tag->GetType() == HlsTag::EXTXIFRAMESTREAMINF) {
                         stream->iframe_ = true;
                     }
@@ -490,7 +471,9 @@ void M3U8MasterPlaylist::UpdateMasterPlaylist()
                         stream->height_ = resolutionAttribute->GetResolution().second;
                     }
                     variants_.emplace_back(stream);
-                    defaultVariant_ = stream; // play last stream
+                    if (stream->bandWidth_ <= BAND_WIDTH_LIMIT) {
+                        defaultVariant_ = stream; // play last stream
+                    }
                 }
                 break;
             }
@@ -498,6 +481,9 @@ void M3U8MasterPlaylist::UpdateMasterPlaylist()
                 break;
         }
     });
+    if (defaultVariant_ == nullptr) {
+        defaultVariant_ = variants_.front();
+    }
     tags.clear();
 }
 }

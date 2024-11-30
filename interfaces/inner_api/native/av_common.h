@@ -43,6 +43,10 @@ enum MediaType : int32_t {
      * track is subtitle.
      */
     MEDIA_TYPE_SUBTITLE = 2,
+    /**
+     * track is timed metadata.
+     */
+    MEDIA_TYPE_TIMED_METADATA = 5,
 };
 
 /**
@@ -162,6 +166,57 @@ enum OutputFormat : uint32_t {
      * output format m4a
     */
     OUTPUT_FORMAT_M4A = 6,
+};
+
+enum VideoOrientationType : int32_t {
+    /**
+     * No rotation or default
+     */
+    ROTATE_NONE = 0,
+    /**
+     * Rotation by 90 degrees
+     */
+    ROTATE_90,
+    /**
+     * Rotation by 180 degrees
+     */
+    ROTATE_180,
+    /**
+     * Rotation by 270 degrees
+     */
+    ROTATE_270,
+    /**
+     * Flip horizontally
+     */
+    FLIP_H,
+    /**
+     * Flip vertically
+     */
+    FLIP_V,
+    /**
+     * Flip horizontally and rotate 90 degrees
+     */
+    FLIP_H_ROT90,
+    /**
+     * Flip vertically and rotate 90 degrees
+     */
+    FLIP_V_ROT90,
+    /**
+     * Flip horizontally and rotate 180 degrees
+     */
+    FLIP_H_ROT180,
+    /**
+     * Flip vertically and rotate 180 degrees
+     */
+    FLIP_V_ROT180,
+    /**
+     * Flip horizontally and rotate 270 degrees
+     */
+    FLIP_H_ROT270,
+    /**
+     * Flip vertically and rotate 270 degrees
+     */
+    FLIP_V_ROT270
 };
 } // namespace MediaAVCodec
 } // namespace OHOS

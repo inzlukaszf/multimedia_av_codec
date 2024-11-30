@@ -27,6 +27,7 @@ public:
     ~AVCodecVideoEncoderImpl();
 
     int32_t Configure(const Format &format) override;
+    int32_t SetCustomBuffer(std::shared_ptr<AVBuffer> buffer) override;
     int32_t Prepare() override;
     int32_t Start() override;
     int32_t Stop() override;
@@ -37,23 +38,19 @@ public:
     sptr<Surface> CreateInputSurface() override;
     int32_t QueueInputBuffer(uint32_t index, AVCodecBufferInfo info, AVCodecBufferFlag flag) override;
     int32_t QueueInputBuffer(uint32_t index) override;
+    int32_t QueueInputParameter(uint32_t index) override;
     int32_t GetOutputFormat(Format &format) override;
     int32_t ReleaseOutputBuffer(uint32_t index) override;
     int32_t SetParameter(const Format &format) override;
     int32_t SetCallback(const std::shared_ptr<AVCodecCallback> &callback) override;
     int32_t SetCallback(const std::shared_ptr<MediaCodecCallback> &callback) override;
+    int32_t SetCallback(const std::shared_ptr<MediaCodecParameterCallback> &callback) override;
+    int32_t SetCallback(const std::shared_ptr<MediaCodecParameterWithAttrCallback> &callback) override;
     int32_t GetInputFormat(Format &format) override;
-    int32_t Init(AVCodecType type, bool isMimeType, const std::string &name);
+    int32_t Init(AVCodecType type, bool isMimeType, const std::string &name, Format &format);
 
 private:
-    enum class CallbackFlag : uint8_t {
-        MEMORY_CALLBACK = 1,
-        BUFFER_CALLBACK,
-        INVALID_CALLBACK,
-    };
-    CallbackFlag cbFlag = CallbackFlag::INVALID_CALLBACK;
-    std::shared_ptr<ICodecService> codecService_ = nullptr;
-    sptr<Surface> surface_ = nullptr;
+    std::shared_ptr<ICodecService> codecClient_ = nullptr;
 };
 } // namespace MediaAVCodec
 } // namespace OHOS

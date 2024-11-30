@@ -24,11 +24,39 @@
 #include "plugin/plugin_buffer.h"
 #include "plugin/plugin_caps.h"
 #include "plugin/plugin_definition.h"
+#include "meta/media_types.h"
 #include "plugin/plugin_time.h"
 
 namespace OHOS {
 namespace Media {
 namespace Plugins {
+
+enum StreamType {
+    MIXED = 0,
+    VIDEO,
+    AUDIO,
+    SUBTITLE
+};
+
+enum VideoType {
+    VIDEO_TYPE_SDR = 0,
+    VIDEO_TYPE_HDR_VIVID = 1,
+    VIDEO_TYPE_HDR_10
+};
+
+class StreamInfo {
+public:
+    int32_t streamId;
+    StreamType type;
+    uint32_t bitRate;
+
+    int32_t videoHeight = 0;
+    int32_t videoWidth = 0;
+    std::string lang = "";
+    VideoType videoType = VideoType::VIDEO_TYPE_SDR;
+    std::string trackName = "";
+};
+
 /**
  * @brief Source Plugin Interface.
  *
@@ -71,6 +99,24 @@ public:
     virtual Status Read(std::shared_ptr<Buffer>& buffer, uint64_t offset, size_t expectedLen) = 0;
 
     /**
+     * @brief Read data from data source.
+     *
+     * The function is valid only after RUNNING state.
+     *
+     * @param streamId stream index.
+     * @param buffer Buffer to store the data, it can be nullptr or empty to get the buffer from plugin.
+     * @param expectedLen   Expected data size to be read
+     * @return  Execution status return
+     *  @retval OK: Plugin Read succeeded.
+     *  @retval ERROR_NOT_ENOUGH_DATA: Data not enough
+     *  @retval END_OF_STREAM: End of stream
+     */
+    virtual Status Read(int32_t streamId, std::shared_ptr<Buffer>& buffer, uint64_t offset, size_t expectedLen)
+    {
+        return Status::OK;
+    }
+
+    /**
      * @brief Get data source size.
      *
      * The function is valid only after INITIALIZED state.
@@ -107,6 +153,22 @@ public:
 
     virtual Status Reset() = 0;
 
+    virtual void SetDemuxerState(int32_t streamId) {}
+
+    virtual void SetDownloadErrorState() {}
+
+    virtual void SetBundleName(const std::string& bundleName) {}
+
+    virtual Status GetDownloadInfo(DownloadInfo& downloadInfo)
+    {
+        return Status::OK;
+    }
+
+    virtual Status GetPlaybackInfo(PlaybackInfo& playbackInfo)
+    {
+        return Status::OK;
+    }
+
     virtual Status GetBitRates(std::vector<uint32_t>& bitRates)
     {
         return Status::OK;
@@ -122,7 +184,7 @@ public:
         return false;
     }
 
-    virtual Status SeekToTime(int64_t seekTime)
+    virtual Status SeekToTime(int64_t seekTime, SeekMode mode)
     {
         return Status::OK;
     }
@@ -139,6 +201,33 @@ public:
     }
 
     virtual Status SetReadBlockingFlag(bool isReadBlockingAllowed)
+    {
+        return Status::OK;
+    }
+
+    virtual void SetInterruptState(bool isInterruptNeeded) {}
+
+    virtual Status SetCurrentBitRate(int32_t bitRate, int32_t streamID)
+    {
+        return Status::OK;
+    }
+
+    virtual Status GetStreamInfo(std::vector<StreamInfo>& streams)
+    {
+        return Status::OK;
+    }
+
+    virtual Status SelectStream(int32_t streamID)
+    {
+        return Status::OK;
+    }
+
+    virtual Status Pause()
+    {
+        return Status::OK;
+    }
+
+    virtual Status Resume()
     {
         return Status::OK;
     }

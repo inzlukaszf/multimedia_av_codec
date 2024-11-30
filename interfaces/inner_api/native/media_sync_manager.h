@@ -36,12 +36,13 @@ public:
     MediaSyncManager() = default;
     virtual ~MediaSyncManager();
     // interfaces called by hiplayer hirecoder etc.
-    Status SetPlaybackRate(float rate);
-    float GetPlaybackRate();
+    Status SetPlaybackRate(float rate) override;
+    float GetPlaybackRate() override;
     void WaitAllPrerolled(bool prerolled = true);
+    Status Stop();
     Status Resume();
     Status Pause();
-    Status Seek(int64_t mediaTime);
+    Status Seek(int64_t mediaTime, bool isClosest = false);
     Status Reset() override;
     bool InSeeking();
     std::condition_variable seekCond_;
@@ -59,7 +60,7 @@ public:
      * @param supplier which report this time anchor
      * @retval current frame Whether rendering is required
      */
-    bool UpdateTimeAnchor(int64_t clockTime, int64_t delayTime, int64_t mediaTime, int64_t mediaAbsTime,
+    bool UpdateTimeAnchor(int64_t clockTime, int64_t delayTime, int64_t mediaTime, int64_t absMediaTime,
         int64_t maxMediaTime, IMediaSynchronizer* supplier) override;
 
     /**
@@ -90,13 +91,17 @@ public:
      */
     void ReportPrerolled(IMediaSynchronizer* supplier) override;
 
-    void SetMediaTimeRangeEnd(int64_t endMediaTime, int32_t trackId) override;
+    void ReportEos(IMediaSynchronizer* supplier) override;
 
-    void SetMediaTimeRangeStart(int64_t startMediaTime, int32_t trackId) override;
+    void SetMediaTimeRangeEnd(int64_t endMediaTime, int32_t trackId, IMediaSynchronizer* supplier) override;
+
+    void SetMediaTimeRangeStart(int64_t startMediaTime, int32_t trackId, IMediaSynchronizer* supplier) override;
 
     void SetStartingTimeMediaUs(int64_t startingTimeMediaUs);
 
     int64_t GetSeekTime() override;
+    void ResetTimeAnchorNoLock();
+    void SetMediaStartPts(int64_t startPts) override;
 private:
     enum class State {
         RESUMED,
@@ -105,6 +110,8 @@ private:
     static int64_t GetSystemClock();
     static int64_t SimpleGetMediaTime(int64_t anchorClockTime, int64_t delayTime, int64_t nowClockTime,
                                       int64_t anchorMediaTime, float playRate);
+    static int64_t SimpleGetMediaTimeExactly(int64_t anchorClockTime, int64_t delayTime, int64_t nowClockTime,
+                                             int64_t anchorMediaTime, float playRate);
     static int64_t SimpleGetClockTime(int64_t anchorClockTime, int64_t nowMediaTime, int64_t anchorMediaTime,
                                       float playRate);
 
@@ -114,18 +121,24 @@ private:
     void SimpleUpdatePlayRate(float playRate);
     void SetMediaTimeStartEnd(int32_t trackId, int32_t index, int64_t val);
     void SetAllSyncShouldWaitNoLock();
-    void ResetTimeAnchorNoLock();
+    int64_t BoundMediaProgress(int64_t newMediaProgressTime);
+    void UpdateFirstPtsAfterSeek(int64_t mediaTime);
 
     int64_t ClipMediaTime(int64_t inTime);
     OHOS::Media::Mutex clockMutex_ {};
     State clockState_ {State::PAUSED};
     int8_t currentSyncerPriority_ {IMediaSynchronizer::NONE};
+    int8_t currentRangeStartPriority_ {IMediaSynchronizer::NONE};
+    int8_t currentRangeEndPriority_ {IMediaSynchronizer::NONE};
     int64_t currentAnchorClockTime_ {HST_TIME_NONE};
     int64_t currentAnchorMediaTime_ {HST_TIME_NONE};
     int64_t currentAbsMediaTime_ {HST_TIME_NONE};
     int64_t pausedMediaTime_ {HST_TIME_NONE};
+    int64_t pausedExactMediaTime_ {HST_TIME_NONE};
     int64_t pausedAbsMediaTime_ {HST_TIME_NONE};
+    int64_t pausedExactAbsMediaTime_ {HST_TIME_NONE};
     int64_t pausedClockTime_ {HST_TIME_NONE};
+    int64_t firstMediaTimeAfterSeek_ {HST_TIME_NONE};
     int64_t startingTimeMediaUs_ {HST_TIME_NONE};
 
     float playRate_ {1.0f};
@@ -143,6 +156,9 @@ private:
     std::vector<IMediaSynchronizer*> syncers_;
     std::vector<IMediaSynchronizer*> prerolledSyncers_;
     int64_t delayTime_ {HST_TIME_NONE};
+    int64_t startPts_ {HST_TIME_NONE};
+    std::atomic<int64_t> lastReportMediaTime_ {HST_TIME_NONE};
+    std::atomic<bool> frameAfterSeeked_ {false};
 };
 } // namespace Pipeline
 } // namespace Media

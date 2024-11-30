@@ -30,6 +30,7 @@ struct IMediaSynchronizer {
     const static int8_t AUDIO_SINK = 2;
     const static int8_t VIDEO_SRC = 4;
     const static int8_t AUDIO_SRC = 6;
+    const static int8_t SUBTITLE_SINK = 8;
     virtual ~IMediaSynchronizer() = default;
     virtual int8_t GetPriority() = 0;
     virtual void WaitAllPrerolled(bool shouldWait) = 0;
@@ -49,7 +50,7 @@ struct IMediaSyncCenter {
      * @param maxMediaTime duration of resource
      * @retval current frame Whether rendering is required
      */
-    virtual bool UpdateTimeAnchor(int64_t clockTime, int64_t delayTime, int64_t mediaTime, int64_t mediaAbsTime,
+    virtual bool UpdateTimeAnchor(int64_t clockTime, int64_t delayTime, int64_t mediaTime, int64_t absMediaTime,
         int64_t maxMediaTime, IMediaSynchronizer* supplier);
 
     /**
@@ -80,11 +81,19 @@ struct IMediaSyncCenter {
      */
     virtual void ReportPrerolled(IMediaSynchronizer* supplier) = 0;
 
-    virtual void SetMediaTimeRangeStart(int64_t startMediaTime, int32_t trackId) = 0;
+    virtual void ReportEos(IMediaSynchronizer* supplier) = 0;
+    
+    virtual void SetMediaTimeRangeStart(int64_t startMediaTime, int32_t trackId, IMediaSynchronizer* supplier) = 0;
 
-    virtual void SetMediaTimeRangeEnd(int64_t endMediaTime, int32_t trackId) = 0;
+    virtual void SetMediaTimeRangeEnd(int64_t endMediaTime, int32_t trackId, IMediaSynchronizer* supplier) = 0;
 
     virtual int64_t GetSeekTime() = 0;
+
+    virtual Status SetPlaybackRate(float rate) = 0;
+
+    virtual float GetPlaybackRate() = 0;
+
+    virtual void SetMediaStartPts(int64_t startPts) = 0;
 };
 } // namespace Pipeline
 } // namespace Media

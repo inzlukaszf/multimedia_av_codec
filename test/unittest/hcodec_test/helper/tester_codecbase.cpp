@@ -24,12 +24,12 @@ using namespace std;
 
 void TesterCodecBase::CallBack::OnError(AVCodecErrorType errorType, int32_t errorCode)
 {
-    LOGI(">>");
+    TLOGI(">>");
 }
 
 void TesterCodecBase::CallBack::OnOutputFormatChanged(const Format &format)
 {
-    LOGI(">>");
+    TLOGI(">>");
 }
 
 void TesterCodecBase::CallBack::OnInputBufferAvailable(uint32_t index, std::shared_ptr<AVBuffer> buffer)
@@ -41,6 +41,28 @@ void TesterCodecBase::CallBack::OnInputBufferAvailable(uint32_t index, std::shar
 
 void TesterCodecBase::CallBack::OnOutputBufferAvailable(uint32_t index, std::shared_ptr<AVBuffer> buffer)
 {
+    if (!(buffer->flag_ & AVCODEC_BUFFER_FLAG_EOS)) {
+        int32_t aveQp {};
+        if (buffer->meta_->GetData(OHOS::Media::Tag::VIDEO_ENCODER_QP_AVERAGE, aveQp)) {
+            TLOGI("buffer->pts_[%" PRId64 "], qp[%d]", buffer->pts_, aveQp);
+        }
+        double mse {};
+        if (buffer->meta_->GetData(OHOS::Media::Tag::VIDEO_ENCODER_MSE, mse)) {
+            TLOGI("buffer->pts_[%" PRId64 "], mse[%f]", buffer->pts_, mse);
+        }
+        bool isLTR {};
+        if (buffer->meta_->GetData(OHOS::Media::Tag::VIDEO_PER_FRAME_IS_LTR, isLTR)) {
+            TLOGI("buffer->pts_[%" PRId64 "], isLTR[%d]", buffer->pts_, isLTR);
+        }
+        int32_t poc {};
+        if (buffer->meta_->GetData(OHOS::Media::Tag::VIDEO_PER_FRAME_POC, poc)) {
+            TLOGI("buffer->pts_[%" PRId64 "], poc[%d]", buffer->pts_, poc);
+        }
+        int32_t frameLayer {};
+        if (buffer->meta_->GetData(OHOS::Media::Tag::VIDEO_ENCODER_FRAME_TEMPORAL_ID, frameLayer)) {
+            TLOGI("buffer->pts_[%" PRId64 "], frameLayer[%d]", buffer->pts_, frameLayer);
+        }
+    }
     tester_->AfterGotOutput(OH_AVCodecBufferAttr {
         .pts = buffer->pts_,
         .size = buffer->memory_ ? buffer->memory_->GetSize() : 0,
@@ -53,11 +75,18 @@ void TesterCodecBase::CallBack::OnOutputBufferAvailable(uint32_t index, std::sha
 
 bool TesterCodecBase::Create()
 {
-    string name = GetCodecName(opt_.isEncoder, (opt_.protocol == H264) ? "video/avc" : "video/hevc");
+    string mime = GetCodecMime(opt_.protocol);
+    string name = GetCodecName(opt_.isEncoder, mime);
     auto begin = std::chrono::steady_clock::now();
     CreateHCodecByName(name, codec_);
     if (codec_ == nullptr) {
-        LOGE("Create failed");
+        TLOGE("Create failed");
+        return false;
+    }
+    Media::Meta meta{};
+    int32_t err = codec_->Init(meta);
+    if (err != AVCS_ERR_OK) {
+        TLOGE("Init failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "Create");
@@ -70,7 +99,7 @@ bool TesterCodecBase::SetCallback()
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->SetCallback(cb);
     if (err != AVCS_ERR_OK) {
-        LOGE("SetCallback failed");
+        TLOGE("SetCallback failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "SetCallback");
@@ -82,7 +111,7 @@ bool TesterCodecBase::Start()
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->Start();
     if (err != AVCS_ERR_OK) {
-        LOGE("Start failed");
+        TLOGE("Start failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "Start");
@@ -94,7 +123,7 @@ bool TesterCodecBase::Stop()
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->Stop();
     if (err != AVCS_ERR_OK) {
-        LOGE("Stop failed");
+        TLOGE("Stop failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "Stop");
@@ -106,7 +135,7 @@ bool TesterCodecBase::Release()
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->Release();
     if (err != AVCS_ERR_OK) {
-        LOGE("Release failed");
+        TLOGE("Release failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "Release");
@@ -118,7 +147,7 @@ bool TesterCodecBase::Flush()
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->Flush();
     if (err != AVCS_ERR_OK) {
-        LOGE("Flush failed");
+        TLOGE("Flush failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "Flush");
@@ -178,15 +207,107 @@ bool TesterCodecBase::ConfigureEncoder()
     if (opt_.quality.has_value()) {
         fmt.PutIntValue(MediaDescriptionKey::MD_KEY_QUALITY, opt_.quality.value());
     }
+    if (opt_.layerCnt.has_value()) {
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_ENABLE_TEMPORAL_SCALABILITY, true);
+        int32_t temporalGopSize = 0;
+        switch (opt_.layerCnt.value()) {
+            case 2: // 2: temporal layerCnt
+                temporalGopSize = 2; // 2: temporalGopSize
+                break;
+            case 3: // 3: temporal layerCnt
+                temporalGopSize = 4; // 4: temporalGopSize
+                break;
+            default:
+                break;
+        }
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_TEMPORAL_GOP_SIZE, temporalGopSize);
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_TEMPORAL_GOP_REFERENCE_MODE, 2); // 2: gop mode
+    }
     EnableHighPerf(fmt);
-
+    if (opt_.qpRange.has_value()) {
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_QP_MIN, opt_.qpRange->qpMin);
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_QP_MAX, opt_.qpRange->qpMax);
+    }
+    if (opt_.repeatAfter.has_value()) {
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_REPEAT_PREVIOUS_FRAME_AFTER, opt_.repeatAfter.value());
+    }
+    if (opt_.repeatMaxCnt.has_value()) {
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_REPEAT_PREVIOUS_MAX_COUNT, opt_.repeatMaxCnt.value());
+    }
+    if (!opt_.isBufferMode && !opt_.perFrameParamsMap.empty()) {
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_ENABLE_SURFACE_INPUT_CALLBACK, 1);
+        opt_.enableInputCb = true;
+    }
+    if (opt_.ltrFrameCount > 0) {
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_LTR_FRAME_COUNT, opt_.ltrFrameCount);
+    }
+    if (opt_.paramsFeedback == 1) {
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_ENABLE_PARAMS_FEEDBACK, opt_.paramsFeedback);
+    }
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->Configure(fmt);
     if (err != AVCS_ERR_OK) {
-        LOGE("Configure failed");
+        TLOGE("Configure failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "Configure");
+    return true;
+}
+
+bool TesterCodecBase::SetEncoderParameter(const SetParameterParams& param)
+{
+    Format fmt;
+    if (param.bitRate.has_value()) {
+        fmt.PutLongValue(MediaDescriptionKey::MD_KEY_BITRATE, param.bitRate.value());
+    }
+    if (param.frameRate.has_value()) {
+        fmt.PutDoubleValue(MediaDescriptionKey::MD_KEY_FRAME_RATE, param.frameRate.value());
+    }
+    if (param.qpRange.has_value()) {
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_QP_MIN, static_cast<int32_t>(param.qpRange->qpMin));
+        fmt.PutIntValue(OHOS::Media::Tag::VIDEO_ENCODER_QP_MAX, static_cast<int32_t>(param.qpRange->qpMax));
+    }
+    int32_t err = codec_->SetParameter(fmt);
+    if (err != AVCS_ERR_OK) {
+        TLOGE("SetParameter failed");
+        return false;
+    }
+    return true;
+}
+
+bool TesterCodecBase::SetEncoderPerFrameParam(BufInfo& buf, const PerFrameParams& param)
+{
+    if (buf.avbuf == nullptr) {
+        return false;
+    }
+    shared_ptr<Media::Meta> meta = buf.avbuf->meta_;
+    if (meta == nullptr) {
+        return false;
+    }
+    if (param.requestIdr.has_value()) {
+        meta->SetData(OHOS::Media::Tag::VIDEO_REQUEST_I_FRAME, param.requestIdr.value());
+    }
+    if (param.qpRange.has_value()) {
+        meta->SetData(OHOS::Media::Tag::VIDEO_ENCODER_QP_MIN, static_cast<int32_t>(param.qpRange->qpMin));
+        meta->SetData(OHOS::Media::Tag::VIDEO_ENCODER_QP_MAX, static_cast<int32_t>(param.qpRange->qpMax));
+    }
+    if (param.ltrParam.has_value()) {
+        meta->SetData(OHOS::Media::Tag::VIDEO_ENCODER_PER_FRAME_MARK_LTR,
+            static_cast<int32_t>(param.ltrParam->markAsLTR));
+        if (param.ltrParam->useLTR > 0) {
+            meta->SetData(OHOS::Media::Tag::VIDEO_ENCODER_PER_FRAME_USE_LTR,
+                static_cast<int32_t>(param.ltrParam->useLTRPoc));
+        }
+    }
+    if (param.discard.has_value()) {
+        meta->SetData(OHOS::Media::Tag::VIDEO_ENCODER_PER_FRAME_DISCARD, param.discard.value());
+    }
+    if (param.ebrParam.has_value()) {
+        meta->SetData(OHOS::Media::Tag::VIDEO_ENCODER_QP_MIN, static_cast<int32_t>(param.ebrParam->minQp));
+        meta->SetData(OHOS::Media::Tag::VIDEO_ENCODER_QP_MAX, static_cast<int32_t>(param.ebrParam->maxQp));
+        meta->SetData(OHOS::Media::Tag::VIDEO_ENCODER_QP_START, static_cast<int32_t>(param.ebrParam->startQp));
+        meta->SetData(OHOS::Media::Tag::VIDEO_PER_FRAME_IS_SKIP, static_cast<bool>(param.ebrParam->isSkip));
+    }
     return true;
 }
 
@@ -195,7 +316,7 @@ sptr<Surface> TesterCodecBase::CreateInputSurface()
     auto begin = std::chrono::steady_clock::now();
     sptr<Surface> ret = codec_->CreateInputSurface();
     if (ret == nullptr) {
-        LOGE("CreateInputSurface failed");
+        TLOGE("CreateInputSurface failed");
         return nullptr;
     }
     CostRecorder::Instance().Update(begin, "CreateInputSurface");
@@ -207,7 +328,7 @@ bool TesterCodecBase::NotifyEos()
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->NotifyEos();
     if (err != AVCS_ERR_OK) {
-        LOGE("NotifyEos failed");
+        TLOGE("NotifyEos failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "NotifyEos");
@@ -219,7 +340,7 @@ bool TesterCodecBase::RequestIDR()
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->SignalRequestIDRFrame();
     if (err != AVCS_ERR_OK) {
-        LOGE("RequestIDR failed");
+        TLOGE("RequestIDR failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "SignalRequestIDRFrame");
@@ -231,7 +352,7 @@ bool TesterCodecBase::GetInputFormat()
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->GetInputFormat(inputFmt_);
     if (err != AVCS_ERR_OK) {
-        LOGE("GetInputFormat failed");
+        TLOGE("GetInputFormat failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "GetInputFormat");
@@ -244,7 +365,7 @@ bool TesterCodecBase::GetOutputFormat()
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->GetOutputFormat(fmt);
     if (err != AVCS_ERR_OK) {
-        LOGE("GetOutputFormat failed");
+        TLOGE("GetOutputFormat failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "GetOutputFormat");
@@ -274,15 +395,22 @@ bool TesterCodecBase::WaitForInput(BufInfo& buf)
                 return !inputList_.empty();
             });
             if (!ret) {
-                LOGE("time out");
+                TLOGE("time out");
                 return false;
             }
         }
         std::tie(buf.idx, buf.avbuf) = inputList_.front();
         inputList_.pop_front();
     }
-    if (buf.avbuf == nullptr || buf.avbuf->memory_ == nullptr) {
-        LOGE("null avbuffer");
+    if (buf.avbuf == nullptr) {
+        TLOGE("null avbuffer");
+        return false;
+    }
+    if (opt_.enableInputCb) {
+        return true;
+    }
+    if (buf.avbuf->memory_ == nullptr) {
+        TLOGE("null memory in avbuffer");
         return false;
     }
     buf.va = buf.avbuf->memory_->GetAddr();
@@ -298,15 +426,17 @@ bool TesterCodecBase::WaitForInput(BufInfo& buf)
 
 bool TesterCodecBase::ReturnInput(const BufInfo& buf)
 {
-    buf.avbuf->pts_ = buf.attr.pts;
-    buf.avbuf->flag_ = buf.attr.flags;
-    buf.avbuf->memory_->SetOffset(buf.attr.offset);
-    buf.avbuf->memory_->SetSize(buf.attr.size);
+    if (!opt_.enableInputCb) {
+        buf.avbuf->pts_ = buf.attr.pts;
+        buf.avbuf->flag_ = buf.attr.flags;
+        buf.avbuf->memory_->SetOffset(buf.attr.offset);
+        buf.avbuf->memory_->SetSize(buf.attr.size);
+    }
 
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->QueueInputBuffer(buf.idx);
     if (err != AVCS_ERR_OK) {
-        LOGE("QueueInputBuffer failed");
+        TLOGE("QueueInputBuffer failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "QueueInputBuffer");
@@ -326,7 +456,7 @@ bool TesterCodecBase::WaitForOutput(BufInfo& buf)
                 return !outputList_.empty();
             });
             if (!waitRes) {
-                LOGE("time out");
+                TLOGE("time out");
                 return false;
             }
         }
@@ -334,17 +464,18 @@ bool TesterCodecBase::WaitForOutput(BufInfo& buf)
         outputList_.pop_front();
     }
     if (buf.avbuf == nullptr) {
-        LOGE("null avbuffer");
+        TLOGE("null avbuffer");
         return false;
     }
     if (buf.avbuf->flag_ & AVCODEC_BUFFER_FLAG_EOS) {
-        LOGI("output eos, quit loop");
+        TLOGI("output eos, quit loop");
         return false;
     }
     buf.attr.pts = buf.avbuf->pts_;
     if (buf.avbuf->memory_) {
         buf.va = buf.avbuf->memory_->GetAddr();
         buf.capacity = static_cast<size_t>(buf.avbuf->memory_->GetCapacity());
+        buf.attr.size = buf.avbuf->memory_->GetSize();
     }
     return true;
 }
@@ -362,7 +493,7 @@ bool TesterCodecBase::ReturnOutput(uint32_t idx)
         apiName = "RenderOutputBuffer";
     }
     if (ret != AVCS_ERR_OK) {
-        LOGE("%{public}s failed", apiName.c_str());
+        TLOGE("%s failed", apiName.c_str());
         return false;
     }
     CostRecorder::Instance().Update(begin, apiName);
@@ -374,7 +505,7 @@ bool TesterCodecBase::SetOutputSurface(sptr<Surface>& surface)
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->SetOutputSurface(surface);
     if (err != AVCS_ERR_OK) {
-        LOGE("SetOutputSurface failed");
+        TLOGE("SetOutputSurface failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "SetOutputSurface");
@@ -394,7 +525,7 @@ bool TesterCodecBase::ConfigureDecoder()
     auto begin = std::chrono::steady_clock::now();
     int32_t err = codec_->Configure(fmt);
     if (err != AVCS_ERR_OK) {
-        LOGE("Configure failed");
+        TLOGE("Configure failed");
         return false;
     }
     CostRecorder::Instance().Update(begin, "Configure");
