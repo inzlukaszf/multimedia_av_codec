@@ -1,0 +1,137 @@
+# Copyright (C) 2023 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("//build/ohos.gni")
+import("//foundation/multimedia/av_codec/config.gni")
+
+ohos_executable("av_codec_demo") {
+  include_dirs = [
+    "$av_codec_root_dir/frameworks/native/capi/common",
+    "$av_codec_root_dir/interfaces/inner_api/native",
+    "$av_codec_root_dir/interfaces/kits/c",
+    "$av_codec_root_dir/interfaces/plugin",
+    "$av_codec_root_dir/services/dfx/include",
+    "$av_codec_root_dir/services/engine/base/include",
+    "$av_codec_root_dir/services/engine/codec/include/video",
+    "$av_codec_root_dir/services/engine/common/include",
+    "$av_codec_root_dir/services/utils/include",
+    "$av_codec_root_dir/../../graphic/graphic_2d/interfaces/inner_api",
+    "$av_codec_root_dir/../../window/window_manager/interfaces/innerkits",
+    "$drm_framework_root_dir/interfaces/kits/c/drm_capi/common",
+    "$drm_framework_root_dir/interfaces/kits/c/drm_capi/include",
+    "$media_foundation_root_dir/interface/kits/c",
+    "$media_foundation_root_dir/interface/inner_api",
+    "./audio_demo",
+    "./video_demo",
+    "./avmuxer",
+    "./avdemuxer",
+    "./codeclist_demo",
+    "./include",
+    "./e2e_demo",
+    "//third_party/ffmpeg",
+  ]
+
+  if (target_cpu == "arm64") {
+    av_codec_plugin_path = "\"/system/lib64/media/av_codec_plugins\""
+  } else {
+    av_codec_plugin_path = "\"/system/lib/media/av_codec_plugins\""
+  }
+
+  defines = [ "AV_CODEC_PLUGIN_PATH=${av_codec_plugin_path}" ]
+  defines += av_codec_defines
+
+  cflags = [
+    "-Wall",
+    "-fno-rtti",
+    "-fno-exceptions",
+    "-fno-common",
+    "-fstack-protector-strong",
+    "-Wshadow",
+    "-FPIC",
+    "-FS",
+    "-O2",
+    "-D_FORTIFY_SOURCE=2",
+    "-fvisibility=hidden",
+    "-Wformat=2",
+    "-Wdate-time",
+    "-Werror",
+    "-Wextra",
+    "-Wimplicit-fallthrough",
+    "-Wsign-compare",
+    "-Wno-unused-parameter",
+    "-Wno-deprecated-declarations",
+  ]
+
+  cflags_cc = cflags
+  cflags_cc += [ "-std=c++17" ]
+
+  sources = [
+    "./audio_demo/avcodec_audio_aac_encoder_demo.cpp",
+    "./audio_demo/avcodec_audio_avbuffer_aac_encoder_demo.cpp",
+    "./audio_demo/avcodec_audio_avbuffer_decoder_demo.cpp",
+    "./audio_demo/avcodec_audio_avbuffer_decoder_inner_demo.cpp",
+    "./audio_demo/avcodec_audio_avbuffer_flac_encoder_demo.cpp",
+    "./audio_demo/avcodec_audio_avbuffer_g711mu_encoder_demo.cpp",
+    "./audio_demo/avcodec_audio_decoder_demo.cpp",
+    "./audio_demo/avcodec_audio_decoder_inner_demo.cpp",
+    "./audio_demo/avcodec_audio_encoder_inner_demo.cpp",
+    "./audio_demo/avcodec_audio_flac_encoder_demo.cpp",
+    "./audio_demo/avcodec_audio_g711mu_encoder_demo.cpp",
+    "./audio_demo/avcodec_audio_opus_encoder_demo.cpp",
+    "./av_codec_demo.cpp",
+    "./avdemuxer/avdemuxer_demo_runner.cpp",
+    "./avdemuxer/capi_demo/avdemuxer_demo.cpp",
+    "./avdemuxer/capi_demo/avsource_demo.cpp",
+    "./avdemuxer/inner_demo/inner_demuxer_demo.cpp",
+    "./avdemuxer/inner_demo/inner_source_demo.cpp",
+    "./avdemuxer/server_demo/file_server_demo.cpp",
+    "./codeclist_demo/codeclist_demo.cpp",
+    "./e2e_demo/avcodec_e2e_demo.cpp",
+    "./e2e_demo/avcodec_e2e_demo_api10.cpp",
+    "./video_demo/avcodec_video_decoder_demo.cpp",
+    "./video_demo/avcodec_video_decoder_inner_demo.cpp",
+  ]
+
+  deps = [
+    "$av_codec_root_dir/interfaces/inner_api/native:av_codec_client",
+    "$av_codec_root_dir/interfaces/kits/c:capi_packages",
+    "$av_codec_root_dir/services/services:av_codec_service",
+    "$av_codec_root_dir/test/nativedemo/avmuxer:av_codec_demo_muxer",
+    "//third_party/ffmpeg:libohosffmpeg",
+  ]
+
+  external_deps = [
+    "c_utils:utils",
+    "graphic_2d:libgraphic_utils",
+    "graphic_2d:librender_service_client",
+    "graphic_surface:surface",
+    "graphic_surface:sync_fence",
+    "hilog:libhilog",
+    "ipc:ipc_core",
+    "media_foundation:capi_packages",
+    "media_foundation:media_foundation",
+    "window_manager:libwm",
+  ]
+
+  if (av_codec_support_drm) {
+    external_deps += [
+      "drm_framework:drm_framework",
+      "drm_framework:native_drm",
+    ]
+  }
+
+  install_enable = false
+
+  part_name = "av_codec"
+  subsystem_name = "multimedia"
+}

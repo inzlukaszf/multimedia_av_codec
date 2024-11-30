@@ -1,0 +1,168 @@
+# Copyright (C) 2023 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("//build/ohos.gni")
+import("//foundation/multimedia/av_codec/config.gni")
+
+config("av_codec_service_config") {
+  visibility = [ ":*" ]
+
+  cflags = [
+    "-std=c++17",
+    "-fno-rtti",
+    "-fno-exceptions",
+    "-Wall",
+    "-fno-common",
+    "-fstack-protector-strong",
+    "-Wshadow",
+    "-FPIC",
+    "-FS",
+    "-O2",
+    "-D_FORTIFY_SOURCE=2",
+    "-fvisibility=hidden",
+    "-Wformat=2",
+    "-Wfloat-equal",
+    "-Wdate-time",
+    "-Werror",
+    "-Wextra",
+    "-Wimplicit-fallthrough",
+    "-Wsign-compare",
+    "-Wunused-parameter",
+  ]
+
+  include_dirs = [
+    "$av_codec_root_dir/interfaces/inner_api/native",
+    "$av_codec_root_dir/interfaces/kits/c",
+    "$av_codec_root_dir/services/dfx/include",
+    "$av_codec_root_dir/services/engine/base/include",
+    "$av_codec_root_dir/services/engine/codec/include/audio",
+    "$av_codec_root_dir/services/engine/codec/include/video",
+    "$av_codec_root_dir/services/engine/codeclist",
+    "$av_codec_root_dir/services/engine/common/include",
+    "$av_codec_root_dir/services/engine/factory",
+    "$av_codec_root_dir/services/engine/muxer",
+    "$av_codec_root_dir/services/engine/plugin/common",
+    "$av_codec_root_dir/services/engine/plugin/core",
+    "$av_codec_root_dir/services/engine/plugin/interface",
+    "$av_codec_root_dir/services/include",
+    "$av_codec_root_dir/services/services/codec/ipc",
+    "$av_codec_root_dir/services/services/codec/server",
+    "$av_codec_root_dir/services/services/codeclist/ipc",
+    "$av_codec_root_dir/services/services/codeclist/server",
+    "$av_codec_root_dir/services/services/common",
+    "$av_codec_root_dir/services/services/factory",
+    "$av_codec_root_dir/services/services/muxer/ipc",
+    "$av_codec_root_dir/services/services/muxer/server",
+    "$av_codec_root_dir/services/services/sa_avcodec/ipc",
+    "$av_codec_root_dir/services/services/sa_avcodec/server/include",
+    "$av_codec_root_dir/services/utils/include",
+    "$av_codec_root_dir/services/engine/source/hst_releated",
+    "$av_codec_root_dir/services/media_engine/modules/media_codec/",
+    "$av_codec_root_dir/interfaces",
+    "$drm_framework_root_dir/services/drm_service/ipc",
+    "$media_foundation_root_dir/interface/inner_api",
+    "//third_party/ffmpeg",
+  ]
+
+  if (target_cpu == "arm64") {
+    av_codec_plugin_path = "\"/system/lib64/media/av_codec_plugins\""
+  } else {
+    av_codec_plugin_path = "\"/system/lib/media/av_codec_plugins\""
+  }
+
+  if (target_cpu == "arm64") {
+    oh_file_plugin_path = "\"/system/lib64/media/histreamer_plugins\""
+  } else {
+    oh_file_plugin_path = "\"/system/lib/media/histreamer_plugins\""
+  }
+
+  defines = []
+  defines += av_codec_defines
+  defines += [
+    "AV_CODEC_PLUGIN_PATH=${av_codec_plugin_path}",
+    "AV_CODEC_PLUGIN_FILE_TAIL=\".z.so\"",
+    "OH_FILE_PLUGIN_PATH=${oh_file_plugin_path}",
+  ]
+
+  if (target_cpu == "arm") {
+    cflags += [ "-DBINDER_IPC_32BIT" ]
+  }
+}
+
+ohos_shared_library("av_codec_service") {
+  install_enable = true
+
+  sanitize = av_codec_sanitize
+
+  configs = [
+    ":av_codec_service_config",
+    "$av_codec_root_dir/services/dfx:av_codec_service_log_dfx_public_config",
+  ]
+
+  sources = [
+    "$av_codec_root_dir/frameworks/native/common/avcodec_errors.cpp",
+    "common/avsharedmemory_ipc.cpp",
+    "sa_avcodec/ipc/avcodec_listener_proxy.cpp",
+    "sa_avcodec/ipc/avcodec_parcel.cpp",
+    "sa_avcodec/ipc/avcodec_service_stub.cpp",
+    "sa_avcodec/server/avcodec_server.cpp",
+    "sa_avcodec/server/avcodec_server_manager.cpp",
+  ]
+
+  if (av_codec_support_codec) {
+    sources += [
+      "codec/ipc/codec_listener_proxy.cpp",
+      "codec/ipc/codec_service_stub.cpp",
+      "codec/server/codec_drm_decrypt.cpp",
+      "codec/server/codec_factory.cpp",
+      "codec/server/codec_server.cpp",
+    ]
+  }
+  if (av_codec_support_codeclist) {
+    sources += [
+      "codeclist/ipc/codeclist_service_stub.cpp",
+      "codeclist/server/codeclist_server.cpp",
+      "sa_avcodec/ipc/codeclist_parcel.cpp",
+    ]
+  }
+
+  deps = [
+    "$av_codec_root_dir/services/dfx:av_codec_service_dfx",
+    "$av_codec_root_dir/services/engine:av_codec_engine_package",
+    "$av_codec_root_dir/services/engine/base:av_codec_codec_base",
+    "$av_codec_root_dir/services/utils:av_codec_service_utils",
+  ]
+
+  if (av_codec_support_codeclist) {
+    deps += [
+      "$av_codec_root_dir/services/engine/codeclist:av_codec_engine_codeclist",
+    ]
+  }
+
+  external_deps = [
+    "c_utils:utils",
+    "graphic_surface:surface",
+    "graphic_surface:sync_fence",
+    "hilog:libhilog",
+    "ipc:ipc_single",
+    "media_foundation:media_foundation",
+    "safwk:system_ability_fwk",
+  ]
+
+  if (av_codec_support_drm) {
+    external_deps += [ "drm_framework:drm_framework" ]
+  }
+
+  subsystem_name = "multimedia"
+  part_name = "av_codec"
+}

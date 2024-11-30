@@ -1,0 +1,85 @@
+# Copyright (C) 2023 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("//build/ohos.gni")
+import("//foundation/multimedia/av_codec/config.gni")
+
+config("av_codec_service_log_dfx_public_config") {
+  cflags = [ "-DOHOS_AV_CODEC_LOG_DFX" ]
+  include_dirs = [ "$av_codec_root_dir/services/dfx/include" ]
+}
+
+ohos_shared_library("av_codec_service_dfx") {
+  install_enable = true
+
+  sanitize = av_codec_sanitize
+
+  sources = [
+    "avcodec_bitstream_dump.cpp",
+    "avcodec_dump_utils.cpp",
+    "avcodec_sysevent.cpp",
+    "avcodec_trace.cpp",
+    "avcodec_xcollie.cpp",
+  ]
+
+  include_dirs = [
+    "./include",
+    "$av_codec_root_dir/interfaces/inner_api/native",
+    "$av_codec_root_dir/interfaces/kits/c",
+    "$media_foundation_root_dir/interface/inner_api",
+    "$media_foundation_root_dir/interface/kits/c",
+  ]
+
+  defines = []
+  defines += av_codec_defines
+
+  cflags = [
+    "-std=c++17",
+    "-fno-rtti",
+    "-fno-exceptions",
+    "-Wall",
+    "-fno-common",
+    "-fstack-protector-strong",
+    "-Wshadow",
+    "-FPIC",
+    "-FS",
+    "-O2",
+    "-D_FORTIFY_SOURCE=2",
+    "-fvisibility=hidden",
+    "-Wformat=2",
+    "-Wfloat-equal",
+    "-Wdate-time",
+    "-Werror",
+    "-Wextra",
+    "-Wimplicit-fallthrough",
+    "-Wsign-compare",
+    "-Wunused-parameter",
+  ]
+
+  external_deps = [
+    "c_utils:utils",
+    "hicollie:libhicollie",
+    "hilog:libhilog",
+    "hisysevent:libhisysevent",
+    "hitrace:hitrace_meter",
+    "init:libbegetutil",
+    "media_foundation:media_foundation",
+  ]
+
+  if (av_codec_support_hidumper) {
+    external_deps += [ "hidumper:lib_dump_usage" ]
+  }
+
+  subsystem_name = "multimedia"
+  part_name = "av_codec"
+}

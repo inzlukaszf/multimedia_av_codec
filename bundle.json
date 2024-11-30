@@ -1,0 +1,167 @@
+{
+    "name": "@ohos/av_codec",
+    "description": "Media standard provides atomic capabilities",
+    "version": "3.1",
+    "license": "Apache License 2.0",
+    "publishAs": "code-segment",
+    "segment": {
+      "destPath": "foundation/multimedia/av_codec"
+    },
+    "dirs": {},
+    "scripts": {},
+    "component": {
+      "name": "av_codec",
+      "subsystem": "multimedia",
+      "syscap": [
+        "SystemCapability.Multimedia.Media.Muxer",
+        "SystemCapability.Multimedia.Media.Spliter",
+        "SystemCapability.Multimedia.Media.AudioCodec",
+        "SystemCapability.Multimedia.Media.AudioDecoder",
+        "SystemCapability.Multimedia.Media.AudioEncoder",
+        "SystemCapability.Multimedia.Media.VideoDecoder",
+        "SystemCapability.Multimedia.Media.VideoEncoder",
+        "SystemCapability.Multimedia.Media.CodecBase"
+      ],
+      "features": [
+        "av_codec_support_capi",
+        "av_codec_support_codec",
+        "av_codec_support_codeclist",
+        "av_codec_support_hcodec",
+        "av_codec_support_demuxer",
+        "av_codec_support_source",
+        "av_codec_support_muxer",
+        "av_codec_support_test",
+        "av_codec_support_xcollie",
+        "av_codec_support_bitstream_dump",
+        "av_codec_enable_special_codec"
+      ],
+      "adapted_system_type": [ "standard" ],
+      "rom": "10000KB",
+      "ram": "10000KB",
+      "hisysevent_config": [
+        "//foundation/multimedia/av_codec/hisysevent.yaml"
+      ],
+      "deps": {
+        "components": [
+          "c_utils",
+          "drivers_interface_codec",
+          "graphic_2d",
+          "graphic_surface",
+          "hdf_core",
+          "hicollie",
+          "hidumper",
+          "hilog",
+          "hisysevent",
+          "hitrace",
+          "init",
+          "ipc",
+          "qos_manager",
+          "safwk",
+          "samgr",
+          "window_manager",
+          "media_foundation",
+          "audio_framework",
+          "drm_framework"
+        ],
+        "third_party": [
+          "bounds_checking_function",
+          "ffmpeg",
+          "curl",
+          "openssl"
+        ]
+      },
+      "build": {
+        "group_type": {
+          "base_group": [],
+          "fwk_group": [
+            "//foundation/multimedia/av_codec/interfaces/kits/c:capi_packages",
+            "//foundation/multimedia/av_codec/interfaces/inner_api/native:av_codec_client"
+          ],
+          "service_group": [
+            "//foundation/multimedia/av_codec/services:av_codec_services_package",
+            "//foundation/multimedia/av_codec/sa_profile:av_codec_service_profile"
+          ]
+        },
+        "inner_kits": [
+          {
+            "type": "so",
+            "name": "//foundation/multimedia/av_codec/interfaces/inner_api/native:av_codec_client",
+            "header": {
+              "header_files": [
+                "avcodec_audio_decoder.h",
+                "avcodec_audio_encoder.h",
+                "avcodec_video_decoder.h",
+                "avcodec_video_encoder.h",
+                "avcodec_audio_codec.h",
+                "avdemuxer.h",
+                "avmuxer.h",
+                "avsource.h",
+                "avcodec_errors.h",
+                "media_description.h",
+                "audio_base_codec_ext.h",
+                "av_common.h",
+                "avcodec_audio_common.h",
+                "avcodec_codec_name.h",
+                "avcodec_common.h",
+                "avcodec_info.h",
+                "avcodec_list.h",
+                "avcodec_mime_type.h"
+              ],
+              "header_base": "//foundation/multimedia/av_codec/interfaces/inner_api/native"
+            }
+          },
+          {
+            "type": "so",
+            "name": "//foundation/multimedia/av_codec/interfaces/kits/c:capi_packages",
+            "header": {
+              "header_files": [
+                "native_avcapability.h",
+                "native_avcodec_audiocodec.h",
+                "native_avcodec_audiodecoder.h",
+                "native_avcodec_audioencoder.h",
+                "native_avcodec_base.h",
+                "native_avcodec_videodecoder.h",
+                "native_avcodec_videoencoder.h",
+                "native_avdemuxer.h",
+                "native_avmuxer.h",
+                "native_avsource.h"
+              ],
+              "header_base": "//foundation/multimedia/av_codec/interfaces/kits/c"
+            }
+          },
+          {
+            "type": "so",
+            "name": "//foundation/multimedia/av_codec/services/media_engine/filters:av_codec_media_engine_filters",
+            "header": {
+              "header_files": [
+                "audio_decoder_filter.h",
+                "audio_sink_filter.h",
+                "audio_capture_filter.h",
+                "audio_encoder_filter.h",
+                "video_capture_filter.h",
+                "surface_encoder_filter.h",
+                "muxer_filter.h",
+                "codec_capability_adapter.h"
+              ],
+              "header_base": "//foundation/multimedia/av_codec/interfaces/inner_api/native"
+            }
+          },
+          {
+            "type": "so",
+            "name": "//foundation/multimedia/av_codec/services/media_engine/modules:av_codec_media_engine_modules",
+            "header": {
+              "header_files": [
+              ],
+              "header_base": "//foundation/multimedia/av_codec/interfaces/inner_api/native"
+            }
+          }
+        ],
+      "test": [
+        "//foundation/multimedia/av_codec/test:av_codec_demo_test",
+        "//foundation/multimedia/av_codec/test:av_codec_unit_test",
+        "//foundation/multimedia/av_codec/test:av_codec_module_test",
+        "//foundation/multimedia/av_codec/test:av_codec_fuzz_test"
+      ]
+      }
+    }
+  }

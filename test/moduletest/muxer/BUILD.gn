@@ -1,0 +1,88 @@
+# Copyright (c) 2020-2021 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("//build/test.gni")
+import("//foundation/multimedia/av_codec/config.gni")
+
+MEDIA_ROOT_DIR = "//foundation/multimedia/av_codec/"
+THIRD_ROOT_DIR = "//third_party/"
+module_output_path = "av_codec/moduletest"
+
+ohos_unittest("muxer_native_module_test") {
+  module_out_path = module_output_path
+  sources = [
+    "Common/src/AVMuxerDemo.cpp",
+    "InnerAPI/InnerAVMuxerInterfaceDependCheckTest.cpp",
+    "InnerAPI/InnerAVMuxerParamCheckTest.cpp",
+    "NativeAPI/NativeAVMuxerInterfaceDependCheckTest.cpp",
+    "NativeAPI/NativeAVMuxerNullCheckTest.cpp",
+    "NativeAPI/NativeAVMuxerParamCheckTest.cpp",
+  ]
+  include_dirs = [
+    "Common/include",
+    "$MEDIA_ROOT_DIR/interfaces/kits/c",
+    "$MEDIA_ROOT_DIR/interfaces/inner_api/native",
+    "$MEDIA_ROOT_DIR/services/utils",
+    "$media_foundation_root_dir/interface/kits/c",
+    "$media_foundation_root_dir/interface/inner_api",
+    "$THIRD_ROOT_DIR/ffmpeg",
+  ]
+
+  cflags = [
+    "-Wall",
+    "-fno-rtti",
+    "-fno-exceptions",
+    "-fno-common",
+    "-fstack-protector-strong",
+    "-Wshadow",
+    "-FPIC",
+    "-FS",
+    "-O2",
+    "-D_FORTIFY_SOURCE=2",
+    "-fvisibility=hidden",
+    "-Wformat=2",
+    "-Wdate-time",
+    "-Werror",
+    "-Wextra",
+    "-Wimplicit-fallthrough",
+    "-Wsign-compare",
+    "-Wunused-parameter",
+    "-Wno-deprecated-declarations",
+  ]
+
+  cflags_cc = cflags
+  cflags_cc += [ "-std=c++17" ]
+
+  if (target_cpu == "arm64") {
+    av_codec_path = "\"/system/lib64\""
+  } else {
+    av_codec_path = "\"/system/lib\""
+  }
+  defines = [ "AV_CODEC_PATH=${av_codec_path}" ]
+
+  deps = [
+    "$MEDIA_ROOT_DIR/interfaces/inner_api/native:av_codec_client",
+    "$MEDIA_ROOT_DIR/interfaces/kits/c:capi_packages",
+  ]
+
+  external_deps = [
+    "c_utils:utils",
+    "graphic_surface:surface",
+    "hilog:libhilog",
+    "media_foundation:capi_packages",
+    "media_foundation:media_foundation",
+  ]
+
+  resource_config_file =
+      "$MEDIA_ROOT_DIR/test/moduletest/resources/ohos_test.xml"
+}
